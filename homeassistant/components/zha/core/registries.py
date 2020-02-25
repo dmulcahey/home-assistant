@@ -17,6 +17,7 @@ import zigpy_xbee.zigbee.application
 import zigpy_zigate.api
 import zigpy_zigate.zigbee.application
 
+from homeassistant.components.alarm_control_panel import DOMAIN as ALARM
 from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR
 from homeassistant.components.cover import DOMAIN as COVER
 from homeassistant.components.device_tracker import DOMAIN as DEVICE_TRACKER
@@ -89,7 +90,7 @@ SINGLE_OUTPUT_CLUSTER_DEVICE_CLASS = {
 }
 
 SWITCH_CLUSTERS = SetRegistry()
-
+ALARM_CONTROL_PANEL_CLUSTERS = SetRegistry()
 BINARY_SENSOR_CLUSTERS = SetRegistry()
 BINARY_SENSOR_CLUSTERS.add(SMARTTHINGS_ACCELERATION_CLUSTER)
 
@@ -111,6 +112,7 @@ DEVICE_CLASS = {
         zigpy.profiles.zha.DeviceType.ON_OFF_LIGHT: LIGHT,
         zigpy.profiles.zha.DeviceType.ON_OFF_PLUG_IN_UNIT: SWITCH,
         zigpy.profiles.zha.DeviceType.SMART_PLUG: SWITCH,
+        zigpy.profiles.zha.DeviceType.IAS_ANCILLARY_CONTROL: ALARM,
     },
     zigpy.profiles.zll.PROFILE_ID: {
         zigpy.profiles.zll.DeviceType.COLOR_LIGHT: LIGHT,
@@ -162,6 +164,7 @@ COMPONENT_CLUSTERS = {
     DEVICE_TRACKER: DEVICE_TRACKER_CLUSTERS,
     LIGHT: LIGHT_CLUSTERS,
     SWITCH: SWITCH_CLUSTERS,
+    ALARM: ALARM_CONTROL_PANEL_CLUSTERS,
 }
 
 ZIGBEE_CHANNEL_REGISTRY = DictRegistry()
