@@ -7,6 +7,8 @@ import logging
 from typing import Any
 
 import voluptuous as vol
+from zigpy.config import CONFIG_SCHEMA, SCHEMA_NETWORK, SCHEMA_OTA
+from zigpy.config.validators import cv_boolean, cv_hex, cv_key
 from zigpy.types.named import EUI64
 import zigpy.zdo.types as zdo_types
 
@@ -846,6 +848,44 @@ async def async_binding_operation(zha_gateway, source_ieee, target_ieee, operati
         zdo.debug(fmt, *(log_msg[2] + (outcome,)))
 
 
+@websocket_api.require_admin
+@websocket_api.async_response
+@websocket_api.websocket_command({vol.Required(TYPE): "zha/network/configuration"})
+async def websocket_get_network_configuration(hass, connection, msg):
+    """Get ZHA network configuration."""
+    import voluptuous_serialize  # pylint: disable=import-outside-toplevel
+
+    data = {}
+
+    def custom_serializer(schema: Any) -> Any:
+        """Serialize additional types for voluptuous_serialize."""
+        if schema is cv_boolean:
+            return {"type": "bool"}
+        if schema is cv_hex:
+            return {"type": "string"}
+        if schema is cv_key:
+            return {"type": "string"}
+        if schema is vol.Schema:
+            return voluptuous_serialize.convert(
+                schema, custom_serializer=custom_serializer
+            )
+
+        return cv.custom_serializer(schema)
+
+    data["schema_network"] = voluptuous_serialize.convert(
+        SCHEMA_NETWORK, custom_serializer=custom_serializer
+    )
+
+    data["schema_ota"] = voluptuous_serialize.convert(
+        vol.Schema(SCHEMA_OTA), custom_serializer=custom_serializer
+    )
+
+    data["config_schema"] = voluptuous_serialize.convert(
+        CONFIG_SCHEMA, custom_serializer=custom_serializer
+    )
+    connection.send_result(msg[ID], data)
+
+
 @callback
 def async_load_api(hass):
     """Set up the web socket API."""
@@ -1149,6 +1189,7 @@ def async_load_api(hass):
     websocket_api.async_register_command(hass, websocket_get_bindable_devices)
     websocket_api.async_register_command(hass, websocket_bind_devices)
     websocket_api.async_register_command(hass, websocket_unbind_devices)
+    websocket_api.async_register_command(hass, websocket_get_network_configuration)
 
 
 @callback
