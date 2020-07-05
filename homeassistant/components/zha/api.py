@@ -1,14 +1,18 @@
 """Web socket API for Zigbee Home Automation devices."""
-
 import asyncio
 import collections
 from collections.abc import Mapping
 import logging
 from typing import Any
 
+from bellows.config import CONF_EZSP_CONFIG, CONF_PARAM_SRC_RTG
+from bellows.config.ezsp import EZSP_SCHEMA
+import serial.tools.list_ports
 import voluptuous as vol
-from zigpy.config import CONFIG_SCHEMA, SCHEMA_NETWORK, SCHEMA_OTA
+import voluptuous_serialize
+import zigpy.config as zigpy_conf
 from zigpy.config.validators import cv_boolean, cv_hex, cv_key
+import zigpy.types as t
 from zigpy.types.named import EUI64
 import zigpy.zdo.types as zdo_types
 
@@ -55,6 +59,7 @@ from .core.const import (
     WARNING_DEVICE_SQUAWK_MODE_ARMED,
     WARNING_DEVICE_STROBE_HIGH,
     WARNING_DEVICE_STROBE_YES,
+    RadioType,
 )
 from .core.group import GroupMember
 from .core.helpers import (
@@ -850,40 +855,164 @@ async def async_binding_operation(zha_gateway, source_ieee, target_ieee, operati
 
 @websocket_api.require_admin
 @websocket_api.async_response
-@websocket_api.websocket_command({vol.Required(TYPE): "zha/network/configuration"})
-async def websocket_get_network_configuration(hass, connection, msg):
-    """Get ZHA network configuration."""
-    import voluptuous_serialize  # pylint: disable=import-outside-toplevel
-
+@websocket_api.websocket_command({vol.Required(TYPE): "zha/configuration"})
+async def websocket_get_zha_configuration(hass, connection, msg):
+    """Get ZHA configuration."""
+    zha_gateway = hass.data[DATA_ZHA][DATA_ZHA_GATEWAY]
     data = {}
 
-    def custom_serializer(schema: Any) -> Any:
-        """Serialize additional types for voluptuous_serialize."""
-        if schema is cv_boolean:
-            return {"type": "bool"}
-        if schema is cv_hex:
-            return {"type": "string"}
-        if schema is cv_key:
-            return {"type": "string"}
-        if schema is vol.Schema:
-            return voluptuous_serialize.convert(
-                schema, custom_serializer=custom_serializer
-            )
-
-        return cv.custom_serializer(schema)
-
-    data["schema_network"] = voluptuous_serialize.convert(
-        SCHEMA_NETWORK, custom_serializer=custom_serializer
+    data[zigpy_conf.CONF_NWK] = network_schema_and_data(zha_gateway.app_config)
+    data[zigpy_conf.CONF_OTA] = ota_schema_and_data(zha_gateway.app_config)
+    data[zigpy_conf.CONF_DEVICE] = await device_schema_and_data(
+        hass, zha_gateway.app_config
     )
 
-    data["schema_ota"] = voluptuous_serialize.convert(
-        vol.Schema(SCHEMA_OTA), custom_serializer=custom_serializer
-    )
+    if zha_gateway.radio_description == RadioType["ezsp"].description:
+        data[CONF_EZSP_CONFIG] = ezsp_schema_and_data(zha_gateway.app_config)
 
-    data["config_schema"] = voluptuous_serialize.convert(
-        CONFIG_SCHEMA, custom_serializer=custom_serializer
-    )
     connection.send_result(msg[ID], data)
+
+
+def custom_serializer(schema: Any) -> Any:
+    """Serialize additional types for voluptuous_serialize."""
+    if schema is cv_boolean:
+        return {"type": "boolean"}
+    if schema is cv_hex:
+        return {"type": "integer"}
+    if schema is t.PanId:
+        return {"type": "integer"}
+    if schema is cv_key:
+        return {"type": "string"}
+    if schema is t.ExtendedPanId:
+        return {"type": "string"}
+    if schema is t.EUI64:
+        return {"type": "string"}
+    if schema is cv.isdir:
+        return {"type": "string"}
+    return cv.custom_serializer(schema)
+
+
+async def device_schema_and_data(hass, app_config):
+    """Get the schema and the current configuration for the device."""
+    current_device_path = app_config["device"]["path"]
+
+    ports = await hass.async_add_executor_job(serial.tools.list_ports.comports)
+    list_of_ports = [p.device for p in ports]
+
+    if current_device_path not in list_of_ports:
+        list_of_ports.append(current_device_path)
+
+    device_schema = vol.Schema(
+        {vol.Required(zigpy_conf.CONF_DEVICE_PATH): vol.All(str, vol.In(list_of_ports))}
+    )
+
+    return {
+        "schema": voluptuous_serialize.convert(
+            device_schema, custom_serializer=custom_serializer
+        ),
+        "data": app_config[zigpy_conf.CONF_DEVICE],
+    }
+
+
+def ota_schema_and_data(app_config):
+    """Get the schema and the current configuration for OTA."""
+    ota_schema = vol.Schema(
+        {
+            vol.Optional(
+                zigpy_conf.CONF_OTA_DIR,
+                default=zigpy_conf.defaults.CONF_OTA_OTAU_DIR_DEFAULT,
+            ): cv.isdir,
+            vol.Optional(
+                zigpy_conf.CONF_OTA_IKEA,
+                default=zigpy_conf.defaults.CONF_OTA_IKEA_DEFAULT,
+            ): cv_boolean,
+            vol.Optional(
+                zigpy_conf.CONF_OTA_LEDVANCE,
+                default=zigpy_conf.defaults.CONF_OTA_LEDVANCE_DEFAULT,
+            ): cv_boolean,
+        }
+    )
+    return {
+        "schema": voluptuous_serialize.convert(
+            ota_schema, custom_serializer=custom_serializer
+        ),
+        "data": app_config[zigpy_conf.CONF_OTA],
+    }
+
+
+def network_schema_and_data(app_config):
+    """Get the network schema and current configuration."""
+    network_schema = vol.Schema(
+        {
+            vol.Optional(
+                zigpy_conf.CONF_NWK_CHANNEL,
+                default=zigpy_conf.defaults.CONF_NWK_CHANNEL_DEFAULT,
+            ): vol.All(cv_hex, vol.Range(min=11, max=26)),
+            vol.Optional(
+                zigpy_conf.CONF_NWK_CHANNELS,
+                default=zigpy_conf.defaults.CONF_NWK_CHANNELS_DEFAULT,
+            ): vol.All(
+                int,
+                cv.multi_select(
+                    [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
+                ),
+            ),
+            vol.Optional(
+                zigpy_conf.CONF_NWK_EXTENDED_PAN_ID,
+                default=zigpy_conf.defaults.CONF_NWK_EXTENDED_PAN_ID_DEFAULT,
+            ): t.ExtendedPanId,
+            vol.Optional(
+                zigpy_conf.CONF_NWK_KEY,
+                default=zigpy_conf.defaults.CONF_NWK_KEY_DEFAULT,
+            ): cv_key,
+            vol.Optional(
+                zigpy_conf.CONF_NWK_KEY_SEQ,
+                default=zigpy_conf.defaults.CONF_NWK_KEY_SEQ_DEFAULT,
+            ): vol.Range(min=0, max=255),
+            vol.Optional(
+                zigpy_conf.CONF_NWK_PAN_ID,
+                default=zigpy_conf.defaults.CONF_NWK_PAN_ID_DEFAULT,
+            ): t.PanId,
+            vol.Optional(
+                zigpy_conf.CONF_NWK_TC_ADDRESS,
+                default=zigpy_conf.defaults.CONF_NWK_TC_ADDRESS_DEFAULT,
+            ): t.EUI64,
+            vol.Optional(
+                zigpy_conf.CONF_NWK_TC_LINK_KEY,
+                default=zigpy_conf.defaults.CONF_NWK_TC_LINK_KEY_DEFAULT,
+            ): cv_key,
+            vol.Optional(
+                zigpy_conf.CONF_NWK_UPDATE_ID,
+                default=zigpy_conf.defaults.CONF_NWK_UPDATE_ID_DEFAULT,
+            ): vol.All(cv_hex, vol.Range(min=0, max=255)),
+        }
+    )
+
+    return {
+        "schema": voluptuous_serialize.convert(
+            network_schema, custom_serializer=custom_serializer
+        ),
+        "data": app_config[zigpy_conf.CONF_NWK],
+    }
+
+
+def ezsp_schema_and_data(app_config):
+    """Get EZSP schema and configuration."""
+    ezsp_config_schema = {
+        vol.Optional(CONF_PARAM_SRC_RTG, default=False): cv_boolean,
+        **EZSP_SCHEMA,
+    }
+    ezsp_config_schema = vol.Schema(ezsp_config_schema)
+
+    return {
+        "schema": voluptuous_serialize.convert(
+            ezsp_config_schema, custom_serializer=custom_serializer
+        ),
+        "data": {
+            CONF_PARAM_SRC_RTG: app_config[CONF_PARAM_SRC_RTG],
+            **app_config[CONF_EZSP_CONFIG],
+        },
+    }
 
 
 @callback
@@ -1189,7 +1318,7 @@ def async_load_api(hass):
     websocket_api.async_register_command(hass, websocket_get_bindable_devices)
     websocket_api.async_register_command(hass, websocket_bind_devices)
     websocket_api.async_register_command(hass, websocket_unbind_devices)
-    websocket_api.async_register_command(hass, websocket_get_network_configuration)
+    websocket_api.async_register_command(hass, websocket_get_zha_configuration)
 
 
 @callback
