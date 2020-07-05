@@ -142,7 +142,8 @@ class ZHAGateway:
         app_config[CONF_DATABASE] = database
         app_config[CONF_DEVICE] = self._config_entry.data[CONF_DEVICE]
 
-        app_config = app_controller_cls.SCHEMA(app_config)
+        self.app_config = app_config = app_controller_cls.SCHEMA(app_config)
+
         try:
             self.application_controller = await app_controller_cls.new(
                 app_config, auto_form=True, start_radio=True
