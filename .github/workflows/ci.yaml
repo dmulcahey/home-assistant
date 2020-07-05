@@ -7,6 +7,7 @@ on:
       - dev
       - rc
       - master
+      - dm/*
   pull_request: ~
 
 env:
