@@ -119,6 +119,7 @@ class ZHAGateway:
         self._log_relay_handler = LogRelayHandler(hass, self)
         self.config_entry = config_entry
         self._unsubs = []
+        self.app_config = None
 
     async def async_initialize(self):
         """Initialize controller and connect radio."""
