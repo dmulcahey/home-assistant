@@ -13,7 +13,7 @@ import voluptuous_serialize
 import zigpy.config as zigpy_conf
 from zigpy.config.validators import cv_boolean, cv_hex, cv_key
 import zigpy.types as t
-from zigpy.types.named import EUI64
+from zigpy.types.named import EUI64, Channels
 import zigpy.zdo.types as zdo_types
 
 from homeassistant.components import websocket_api
@@ -70,6 +70,8 @@ from .core.helpers import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+ALL_CHANNELS = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
 
 TYPE = "type"
 CLIENT = "client"
@@ -892,6 +894,49 @@ def custom_serializer(schema: Any) -> Any:
     return cv.custom_serializer(schema)
 
 
+def list_of_channels_from_mask(mask):
+    """Get the list of channels back from the channel mask."""
+    if Channels.NO_CHANNELS == mask:
+        return []
+    elif Channels.ALL_CHANNELS == mask:
+        return ALL_CHANNELS
+    else:
+        channel_list = []
+        if Channels.CHANNEL_11 in mask:
+            channel_list.append(11)
+        if Channels.CHANNEL_12 in mask:
+            channel_list.append(12)
+        if Channels.CHANNEL_13 in mask:
+            channel_list.append(13)
+        if Channels.CHANNEL_14 in mask:
+            channel_list.append(14)
+        if Channels.CHANNEL_15 in mask:
+            channel_list.append(15)
+        if Channels.CHANNEL_16 in mask:
+            channel_list.append(16)
+        if Channels.CHANNEL_17 in mask:
+            channel_list.append(17)
+        if Channels.CHANNEL_18 in mask:
+            channel_list.append(18)
+        if Channels.CHANNEL_19 in mask:
+            channel_list.append(19)
+        if Channels.CHANNEL_20 in mask:
+            channel_list.append(20)
+        if Channels.CHANNEL_21 in mask:
+            channel_list.append(21)
+        if Channels.CHANNEL_22 in mask:
+            channel_list.append(22)
+        if Channels.CHANNEL_23 in mask:
+            channel_list.append(23)
+        if Channels.CHANNEL_24 in mask:
+            channel_list.append(24)
+        if Channels.CHANNEL_25 in mask:
+            channel_list.append(25)
+        if Channels.CHANNEL_26 in mask:
+            channel_list.append(26)
+        return channel_list
+
+
 async def device_schema_and_data(hass, app_config):
     """Get the schema and the current configuration for the device."""
     current_device_path = app_config["device"]["path"]
@@ -951,12 +996,7 @@ def network_schema_and_data(app_config):
             vol.Optional(
                 zigpy_conf.CONF_NWK_CHANNELS,
                 default=zigpy_conf.defaults.CONF_NWK_CHANNELS_DEFAULT,
-            ): vol.All(
-                int,
-                cv.multi_select(
-                    [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
-                ),
-            ),
+            ): vol.All(int, cv.multi_select(ALL_CHANNELS)),
             vol.Optional(
                 zigpy_conf.CONF_NWK_EXTENDED_PAN_ID,
                 default=zigpy_conf.defaults.CONF_NWK_EXTENDED_PAN_ID_DEFAULT,
@@ -988,11 +1028,16 @@ def network_schema_and_data(app_config):
         }
     )
 
+    data = app_config[zigpy_conf.CONF_NWK].copy()
+    data[zigpy_conf.CONF_NWK_CHANNELS] = list_of_channels_from_mask(
+        data[zigpy_conf.CONF_NWK_CHANNELS]
+    )
+
     return {
         "schema": voluptuous_serialize.convert(
             network_schema, custom_serializer=custom_serializer
         ),
-        "data": app_config[zigpy_conf.CONF_NWK],
+        "data": data,
     }
 
 
