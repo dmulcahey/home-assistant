@@ -1060,6 +1060,16 @@ def ezsp_schema_and_data(app_config):
     }
 
 
+@websocket_api.require_admin
+@websocket_api.async_response
+@websocket_api.websocket_command({vol.Required(TYPE): "zha/configuration/update"})
+async def websocket_update_zha_configuration(hass, connection, msg):
+    """Update the ZHA configuration."""
+    zha_gateway = hass.data[DATA_ZHA][DATA_ZHA_GATEWAY]
+    status = await hass.config_entries.async_reload(zha_gateway.config_entry.entry_id)
+    connection.send_result(msg[ID], status)
+
+
 @callback
 def async_load_api(hass):
     """Set up the web socket API."""
@@ -1364,6 +1374,7 @@ def async_load_api(hass):
     websocket_api.async_register_command(hass, websocket_bind_devices)
     websocket_api.async_register_command(hass, websocket_unbind_devices)
     websocket_api.async_register_command(hass, websocket_get_zha_configuration)
+    websocket_api.async_register_command(hass, websocket_update_zha_configuration)
 
 
 @callback
