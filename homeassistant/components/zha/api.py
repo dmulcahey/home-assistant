@@ -1061,12 +1061,22 @@ def ezsp_schema_and_data(app_config):
 
 @websocket_api.require_admin
 @websocket_api.async_response
-@websocket_api.websocket_command({vol.Required(TYPE): "zha/configuration/update"})
+@websocket_api.websocket_command(
+    {vol.Required(TYPE): "zha/configuration/update", vol.Required("data"): object}
+)
 async def websocket_update_zha_configuration(hass, connection, msg):
     """Update the ZHA configuration."""
     zha_gateway = hass.data[DATA_ZHA][DATA_ZHA_GATEWAY]
-    status = await hass.config_entries.async_reload(zha_gateway.config_entry.entry_id)
-    connection.send_result(msg[ID], status)
+    old_config_entry_data = zha_gateway.config_entry.data
+    data_to_save = msg["data"]
+
+    _LOGGER.info(
+        "Updating ZHA configuration from %s to %s", old_config_entry_data, data_to_save
+    )
+
+    # hass.config_entries.async_update_entry(zha_gateway.config_entry, data=data_to_save)
+    # status = await hass.config_entries.async_reload(zha_gateway.config_entry.entry_id)
+    # connection.send_result(msg[ID], status)
 
 
 @callback
