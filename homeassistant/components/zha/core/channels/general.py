@@ -191,7 +191,7 @@ class LevelControlChannel(ZigbeeChannel):
     @callback
     def attribute_updated(self, attrid, value):
         """Handle attribute updates on this cluster."""
-        self.debug("received attribute: %s update with value: %s", attrid, value)
+        self.debug_attribute_report(attrid, value)
         if attrid == self.CURRENT_LEVEL:
             self.dispatch_level_change(SIGNAL_SET_LEVEL, value)
 
@@ -286,6 +286,7 @@ class OnOffChannel(ZigbeeChannel):
     @callback
     def attribute_updated(self, attrid, value):
         """Handle attribute updates on this cluster."""
+        self.debug_attribute_report(attrid, value)
         if attrid == self.ON_OFF:
             self.async_send_signal(
                 f"{self.unique_id}_{SIGNAL_ATTR_UPDATED}", attrid, "on_off", value
@@ -387,6 +388,7 @@ class PowerConfigurationChannel(ZigbeeChannel):
     @callback
     def attribute_updated(self, attrid, value):
         """Handle attribute updates on this cluster."""
+        self.debug_attribute_report(attrid, value)
         attr = self._report_config[1].get("attr")
         if isinstance(attr, str):
             attr_id = self.cluster.attridx.get(attr)

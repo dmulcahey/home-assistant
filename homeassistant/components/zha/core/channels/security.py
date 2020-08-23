@@ -163,6 +163,7 @@ class IASZoneChannel(ZigbeeChannel):
     @callback
     def attribute_updated(self, attrid, value):
         """Handle attribute updates on this cluster."""
+        self.debug_attribute_report(attrid, value)
         if attrid == 2:
             value = value & 3
             self.async_send_signal(

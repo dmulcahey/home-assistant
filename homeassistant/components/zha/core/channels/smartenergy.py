@@ -99,6 +99,13 @@ class Metering(ZigbeeChannel):
     def attribute_updated(self, attrid, value):
         """Handle attribute update from Metering cluster."""
         if None in (self._multiplier, self._divisor, self._format_spec):
+            self.debug_attribute_report(attrid, value)
+            self.debug(
+                "skipping attribute update because multiplier: %s, divisor: %s or format_spec: %s is None",
+                self._multiplier,
+                self._divisor,
+                self._format_spec,
+            )
             return
         super().attribute_updated(attrid, value * self._multiplier / self._divisor)
 

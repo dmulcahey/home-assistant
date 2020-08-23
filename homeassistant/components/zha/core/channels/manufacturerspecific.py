@@ -71,6 +71,7 @@ class SmartThingsAcceleration(ZigbeeChannel):
     @callback
     def attribute_updated(self, attrid, value):
         """Handle attribute updates on this cluster."""
+        self.debug_attribute_report(attrid, value)
         if attrid == self.value_attribute:
             self.async_send_signal(
                 f"{self.unique_id}_{SIGNAL_ATTR_UPDATED}",

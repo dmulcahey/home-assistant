@@ -31,9 +31,7 @@ class DoorLockChannel(ZigbeeChannel):
     def attribute_updated(self, attrid, value):
         """Handle attribute update from lock cluster."""
         attr_name = self.cluster.attributes.get(attrid, [attrid])[0]
-        self.debug(
-            "Attribute report '%s'[%s] = %s", self.cluster.name, attr_name, value
-        )
+        self.debug_attribute_report(attrid, value)
         if attrid == self._value_attribute:
             self.async_send_signal(
                 f"{self.unique_id}_{SIGNAL_ATTR_UPDATED}", attrid, attr_name, value
@@ -82,9 +80,7 @@ class WindowCovering(ZigbeeChannel):
     def attribute_updated(self, attrid, value):
         """Handle attribute update from window_covering cluster."""
         attr_name = self.cluster.attributes.get(attrid, [attrid])[0]
-        self.debug(
-            "Attribute report '%s'[%s] = %s", self.cluster.name, attr_name, value
-        )
+        self.debug_attribute_report(attrid, value)
         if attrid == self._value_attribute:
             self.async_send_signal(
                 f"{self.unique_id}_{SIGNAL_ATTR_UPDATED}", attrid, attr_name, value

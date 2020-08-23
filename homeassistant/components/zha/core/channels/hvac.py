@@ -80,9 +80,7 @@ class FanChannel(ZigbeeChannel):
     def attribute_updated(self, attrid: int, value: Any) -> None:
         """Handle attribute update from fan cluster."""
         attr_name = self.cluster.attributes.get(attrid, [attrid])[0]
-        self.debug(
-            "Attribute report '%s'[%s] = %s", self.cluster.name, attr_name, value
-        )
+        self.debug_attribute_report(attrid, value)
         if attrid == self._value_attribute:
             self._fan_mode = value
             self.async_send_signal(
@@ -273,9 +271,7 @@ class ThermostatChannel(ZigbeeChannel):
     def attribute_updated(self, attrid, value):
         """Handle attribute update cluster."""
         attr_name = self.cluster.attributes.get(attrid, [attrid])[0]
-        self.debug(
-            "Attribute report '%s'[%s] = %s", self.cluster.name, attr_name, value
-        )
+        self.debug_attribute_report(attrid, value)
         setattr(self, f"_{attr_name}", value)
         self.async_send_signal(
             f"{self.unique_id}_{SIGNAL_ATTR_UPDATED}",
@@ -331,9 +327,7 @@ class ThermostatChannel(ZigbeeChannel):
         """Parse configure reporting result."""
         if not isinstance(res, list):
             # assume default response
-            self.debug(
-                "attr reporting for '%s' on '%s': %s", attrs, self.name, res,
-            )
+            self.debug("attr reporting for '%s' on '%s': %s", attrs, self.name, res)
             return
         if res[0].status == Status.SUCCESS and len(res) == 1:
             self.debug(

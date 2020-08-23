@@ -209,6 +209,7 @@ class ZigbeeChannel(LogMixin):
     @callback
     def attribute_updated(self, attrid, value):
         """Handle attribute updates on this cluster."""
+        self.debug_attribute_report(attrid, value)
         self.async_send_signal(
             f"{self.unique_id}_{SIGNAL_ATTR_UPDATED}",
             attrid,
@@ -272,6 +273,17 @@ class ZigbeeChannel(LogMixin):
                 str(ex),
             )
             return {}
+
+    def debug_attribute_report(self, attrid, value):
+        """Log the content of the attribute report."""
+        attr_name = self.cluster.attributes.get(attrid, [attrid])[0]
+        self.debug(
+            "Attribute report '%s'[%s - id: %s] = %s",
+            self.cluster.name,
+            attr_name,
+            attrid,
+            value,
+        )
 
     def log(self, level, msg, *args):
         """Log a message."""
@@ -344,6 +356,7 @@ class ClientChannel(ZigbeeChannel):
     @callback
     def attribute_updated(self, attrid, value):
         """Handle an attribute updated on this cluster."""
+        self.debug_attribute_report(attrid, value)
         self.zha_send_event(
             SIGNAL_ATTR_UPDATED,
             {
