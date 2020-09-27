@@ -46,15 +46,16 @@ def decorate_command(channel, command):
     @wraps(command)
     async def wrapper(*args, **kwds):
         try:
-            result = await command(*args, **kwds)
-            channel.debug(
-                "executed '%s' command with args: '%s' kwargs: '%s' result: %s",
-                command.__name__,
-                args,
-                kwds,
-                result,
-            )
-            return result
+            async with channel.command_semaphore:
+                result = await command(*args, **kwds)
+                channel.debug(
+                    "executed '%s' command with args: '%s' kwargs: '%s' result: %s",
+                    command.__name__,
+                    args,
+                    kwds,
+                    result,
+                )
+                return result
 
         except (zigpy.exceptions.ZigbeeException, asyncio.TimeoutError) as ex:
             channel.debug("command failed: %s exception: %s", command.__name__, str(ex))
@@ -94,6 +95,7 @@ class ZigbeeChannel(LogMixin):
                 self.value_attribute = self.cluster.attridx.get(attr)
             else:
                 self.value_attribute = attr
+        self.command_semaphore = asyncio.Semaphore(1)
         self._status = ChannelStatus.CREATED
         self._cluster.add_listener(self)
 
