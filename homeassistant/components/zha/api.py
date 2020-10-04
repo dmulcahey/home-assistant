@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from bellows.config import CONF_EZSP_CONFIG, CONF_PARAM_SRC_RTG
-from bellows.config.ezsp import EZSP_SCHEMA
+from bellows.ezsp.v8.config import EZSP_SCHEMA
 import serial.tools.list_ports
 import voluptuous as vol
 import voluptuous_serialize
