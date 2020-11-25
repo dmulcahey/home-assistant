@@ -21,7 +21,9 @@
         }
       }
     },
-    "error": { "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]" },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]"
+    },
     "abort": {
       "single_instance_allowed": "[%key:common::config_flow::abort::single_instance_allowed%]"
     }
@@ -77,6 +79,11 @@
       "face_4": "with face 4 activated",
       "face_5": "with face 5 activated",
       "face_6": "with face 6 activated"
+    }
+  },
+  "system_health": {
+    "info": {
+      "network_active": "Zigbee Network Active"
     }
   }
 }
