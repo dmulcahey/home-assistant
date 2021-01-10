@@ -74,7 +74,9 @@ class ChannelStatus(Enum):
 
     CREATED = 1
     CONFIGURED = 2
-    INITIALIZED = 3
+    CONFIGURATION_ERROR = 3
+    INITIALIZATION_ERROR = 4
+    INITIALIZED = 5
 
 
 class ZigbeeChannel(LogMixin):
@@ -151,6 +153,7 @@ class ZigbeeChannel(LogMixin):
             self.debug(
                 "Failed to bind '%s' cluster: %s", self.cluster.ep_attribute, str(ex)
             )
+            self._status = ChannelStatus.CONFIGURATION_ERROR
 
     async def configure_reporting(self) -> None:
         """Configure attribute reporting for a cluster.
@@ -186,20 +189,27 @@ class ZigbeeChannel(LogMixin):
                     self.cluster.ep_attribute,
                     str(ex),
                 )
+                self._status = ChannelStatus.CONFIGURATION_ERROR
 
     async def async_configure(self) -> None:
         """Set cluster binding and attribute reporting."""
-        if not self._ch_pool.skip_configuration:
-            await self.bind()
-            if self.cluster.is_server:
-                await self.configure_reporting()
-            ch_specific_cfg = getattr(self, "async_configure_channel_specific", None)
-            if ch_specific_cfg:
-                await ch_specific_cfg()
-            self.debug("finished channel configuration")
-        else:
+        if self._ch_pool.skip_configuration:
             self.debug("skipping channel configuration")
-        self._status = ChannelStatus.CONFIGURED
+            self._status = ChannelStatus.CONFIGURED
+            return
+        await self.bind()
+        if self.cluster.is_server:
+            await self.configure_reporting()
+        ch_specific_cfg = getattr(self, "async_configure_channel_specific", None)
+        if ch_specific_cfg:
+            await ch_specific_cfg()
+        if self._status == ChannelStatus.CONFIGURATION_ERROR:
+            self.warning(
+                "channel configuration encountered errors; the device may not work as expected"
+            )
+        else:
+            self._status = ChannelStatus.CONFIGURED
+        self.debug("finished channel configuration")
 
     async def async_initialize(self, from_cache: bool) -> None:
         """Initialize channel."""
@@ -210,13 +220,20 @@ class ZigbeeChannel(LogMixin):
         self.debug("initializing channel: from_cache: %s", from_cache)
         attributes = [cfg["attr"] for cfg in self._report_config]
         if attributes:
-            await self.get_attributes(attributes, from_cache=from_cache)
+            results = await self.get_attributes(attributes, from_cache=from_cache)
+            if results == {}:
+                self.warning(
+                    "channel initialization encountered errors; the device may not work as expected"
+                )
+                self._status = ChannelStatus.INITIALIZATION_ERROR
 
         ch_specific_init = getattr(self, "async_initialize_channel_specific", None)
         if ch_specific_init:
             await ch_specific_init(from_cache=from_cache)
 
         self.debug("finished channel configuration")
+        if self._status == ChannelStatus.INITIALIZATION_ERROR:
+            return
         self._status = ChannelStatus.INITIALIZED
 
     @callback

@@ -103,6 +103,7 @@ class DevicePairingStatus(Enum):
     INTERVIEW_COMPLETE = 2
     CONFIGURED = 3
     INITIALIZED = 4
+    POTENTIALLY_BROKEN = 5
 
 
 class ZHAGateway:
@@ -541,7 +542,7 @@ class ZHAGateway:
 
     async def async_device_initialized(self, device: zha_typing.ZigpyDeviceType):
         """Handle device joined and basic information discovered (async)."""
-        zha_device = self._async_get_or_create_device(device)
+        zha_device: zha_typing.ZhaDeviceType = self._async_get_or_create_device(device)
         # This is an active device so set a last seen if it is none
         if zha_device.last_seen is None:
             zha_device.async_update_last_seen(time.time())
@@ -570,7 +571,12 @@ class ZHAGateway:
             await self._async_device_joined(zha_device)
 
         device_info = zha_device.zha_device_info
-        device_info[DEVICE_PAIRING_STATUS] = DevicePairingStatus.INITIALIZED.name
+        potentially_broken = zha_device.async_is_potentially_broken()
+        device_info[DEVICE_PAIRING_STATUS] = (
+            DevicePairingStatus.POTENTIALLY_BROKEN.name
+            if potentially_broken
+            else DevicePairingStatus.INITIALIZED.name
+        )
         async_dispatcher_send(
             self._hass,
             ZHA_GW_MSG,
@@ -579,6 +585,8 @@ class ZHAGateway:
                 ZHA_GW_MSG_DEVICE_INFO: device_info,
             },
         )
+        if potentially_broken:
+            await self.application_controller.remove(zha_device.ieee)
 
     async def _async_device_joined(self, zha_device: zha_typing.ZhaDeviceType) -> None:
         zha_device.available = True
@@ -596,7 +604,7 @@ class ZHAGateway:
         await zha_device.async_initialize(from_cache=False)
         async_dispatcher_send(self._hass, SIGNAL_ADD_ENTITIES)
 
-    async def _async_device_rejoined(self, zha_device):
+    async def _async_device_rejoined(self, zha_device: zha_typing.ZhaDeviceType):
         _LOGGER.debug(
             "skipping discovery for previously discovered device - %s:%s",
             zha_device.nwk,

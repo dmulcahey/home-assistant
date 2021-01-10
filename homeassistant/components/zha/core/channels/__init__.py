@@ -129,6 +129,26 @@ class Channels:
         self.zdo_channel.debug("'async_configure' stage succeeded")
         await asyncio.gather(*(pool.async_configure() for pool in self.pools))
 
+    def _channel_statuses(self) -> List[base.ChannelStatus]:
+        """Get the list of statuses for the channels that were configured and initialized."""
+        all_channels = []
+        for pool in self.pools:
+            pool_channels = [
+                *pool.claimed_channels.values(),
+                *pool.client_channels.values(),
+            ]
+            all_channels.append(pool_channels)
+        return [channel.status for channel in all_channels]
+
+    @callback
+    def async_is_potentially_broken(self) -> bool:
+        """Return true if any channel had a config or init error."""
+        channel_statuses: List[base.ChannelStatus] = self._channel_statuses()
+        return (
+            base.ChannelStatus.CONFIGURATION_ERROR in channel_statuses
+            or base.ChannelStatus.INITIALIZATION_ERROR in channel_statuses
+        )
+
     @callback
     def async_new_entity(
         self,

@@ -413,6 +413,10 @@ class ZHADevice(LogMixin):
         self.status = DeviceStatus.INITIALIZED
         self.debug("completed initialization")
 
+    def async_is_potentially_broken(self) -> bool:
+        """Return true if any channels errored during initialization or configuration."""
+        return self._channels.async_is_potentially_broken()
+
     @callback
     def async_cleanup_handles(self) -> None:
         """Unsubscribe the dispatchers and timers."""
