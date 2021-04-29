@@ -49,6 +49,7 @@ from .core.const import (
     GROUP_ID,
     GROUP_IDS,
     GROUP_NAME,
+    LOG_PAGE_RELAY_LOGGERS,
     MFG_CLUSTER_ID_START,
     WARNING_DEVICE_MODE_EMERGENCY,
     WARNING_DEVICE_SOUND_HIGH,
@@ -235,6 +236,32 @@ async def websocket_permit_devices(hass, connection, msg):
         )
     else:
         await zha_gateway.application_controller.permit(time_s=duration, node=ieee)
+    connection.send_result(msg["id"])
+
+
+@websocket_api.require_admin
+@websocket_api.async_response
+@websocket_api.websocket_command({vol.Required("type"): "zha/logs"})
+async def websocket_view_zha_logs(hass, connection, msg):
+    """Relay ZHA logs to the frontend."""
+    zha_gateway = hass.data[DATA_ZHA][DATA_ZHA_GATEWAY]
+
+    async def forward_messages(data):
+        """Forward events to websocket."""
+        connection.send_message(websocket_api.event_message(msg["id"], data))
+
+    remove_dispatcher_function = async_dispatcher_connect(
+        hass, "zha_gateway_message", forward_messages
+    )
+
+    @callback
+    def async_cleanup() -> None:
+        """Remove signal listener and turn off debug mode."""
+        zha_gateway.async_disable_debug_mode(logs_to_relay=LOG_PAGE_RELAY_LOGGERS)
+        remove_dispatcher_function()
+
+    connection.subscriptions[msg["id"]] = async_cleanup
+    zha_gateway.async_enable_debug_mode(logs_to_relay=LOG_PAGE_RELAY_LOGGERS)
     connection.send_result(msg["id"])
 
 
@@ -1246,6 +1273,7 @@ def async_load_api(hass):
     websocket_api.async_register_command(hass, websocket_update_topology)
     websocket_api.async_register_command(hass, websocket_get_configuration)
     websocket_api.async_register_command(hass, websocket_update_zha_configuration)
+    websocket_api.async_register_command(hass, websocket_view_zha_logs)
 
 
 @callback
