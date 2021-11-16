@@ -27,7 +27,7 @@ from homeassistant.components.switch import DOMAIN as SWITCH
 # importing channels updates registries
 from . import channels as zha_channels  # noqa: F401 pylint: disable=unused-import
 from .decorators import CALLABLE_T, DictRegistry, SetRegistry
-from .typing import ChannelType
+from .typing import ChannelType, ZhaDeviceType
 
 GROUP_ENTITY_DOMAINS = [LIGHT, SWITCH, FAN]
 
@@ -241,6 +241,42 @@ class MatchRule:
         return matches
 
 
+@attr.s(frozen=True)
+class DeviceMatchRule:
+    """Match a ZHA Entity to a zha device."""
+
+    radio_descriptions: Callable | set[str] | str = attr.ib(
+        factory=frozenset, converter=set_or_callable
+    )
+    device_types: Callable | set[str] | str = attr.ib(
+        factory=frozenset, converter=set_or_callable
+    )
+
+    def strict_matched(self, zha_device: ZhaDeviceType) -> bool:
+        """Return True if this device matches the criteria."""
+        return all(self._matched(zha_device))
+
+    def loose_matched(self, zha_device: ZhaDeviceType) -> bool:
+        """Return True if this device matches the criteria."""
+        return any(self._matched(zha_device))
+
+    def _matched(self, zha_device: ZhaDeviceType) -> list:
+        """Return a list of field matches."""
+        if not any(attr.asdict(self).values()):
+            return [False]
+
+        matches = []
+        if self.radio_descriptions:
+            matches.append(
+                zha_device.gateway.radio_description in self.radio_descriptions
+            )
+
+        if self.device_types:
+            matches.append(zha_device.device_type in self.device_types)
+
+        return matches
+
+
 @dataclasses.dataclass
 class EntityClassAndChannels:
     """Container for entity class and corresponding channels."""
@@ -251,6 +287,7 @@ class EntityClassAndChannels:
 
 RegistryDictType = Dict[str, Dict[MatchRule, CALLABLE_T]]
 MultiRegistryDictType = Dict[str, Dict[MatchRule, List[CALLABLE_T]]]
+MultiRegistryDeviceDictType = Dict[str, Dict[DeviceMatchRule, List[CALLABLE_T]]]
 GroupRegistryDictType = Dict[str, CALLABLE_T]
 
 
@@ -262,6 +299,9 @@ class ZHAEntityRegistry:
         self._strict_registry: RegistryDictType = collections.defaultdict(dict)
         self._multi_entity_registry: MultiRegistryDictType = collections.defaultdict(
             lambda: collections.defaultdict(list)
+        )
+        self._multi_device_entity_registry: MultiRegistryDeviceDictType = (
+            collections.defaultdict(lambda: collections.defaultdict(list))
         )
         self._group_registry: GroupRegistryDictType = {}
 
@@ -306,6 +346,22 @@ class ZHAEntityRegistry:
                         break
 
         return result, list(all_claimed)
+
+    def get_device_entities(
+        self, zha_device
+    ) -> tuple[dict[str, list[EntityClassAndChannels]], list[ChannelType]]:
+        """Match ZHA device to potentially multiple ZHA Entity classes."""
+        result: dict[str, list[EntityClassAndChannels]] = collections.defaultdict(list)
+        for component in self._multi_device_entity_registry:
+            matches = self._multi_device_entity_registry[component]
+            for match in matches:
+                if match.strict_matched(zha_device):
+                    for ent_class in self._multi_device_entity_registry[component][
+                        match
+                    ]:
+                        result[component].append(ent_class)
+
+        return result
 
     def get_group_entity(self, component: str) -> CALLABLE_T:
         """Match a ZHA group to a ZHA Entity class."""
@@ -363,6 +419,26 @@ class ZHAEntityRegistry:
             All non empty fields of a match rule must match.
             """
             self._multi_entity_registry[component][rule].append(zha_entity)
+            return zha_entity
+
+        return decorator
+
+    def multipass_device_match(
+        self,
+        component: str,
+        radio_descriptions: Callable | set[str] | str = None,
+        device_types: Callable | set[str] | str = None,
+    ) -> Callable[[CALLABLE_T], CALLABLE_T]:
+        """Decorate a loose match rule."""
+
+        rule = DeviceMatchRule(radio_descriptions, device_types)
+
+        def decorator(zha_entity: CALLABLE_T) -> CALLABLE_T:
+            """Register a loose match rule.
+
+            All non empty fields of a match rule must match.
+            """
+            self._multi_device_entity_registry[component][rule].append(zha_entity)
             return zha_entity
 
         return decorator

@@ -49,6 +49,15 @@ async def async_add_entities(
         return
     to_add = [ent_cls.create_entity(*args) for ent_cls, args in entities]
     to_add = [entity for entity in to_add if entity is not None]
+
+    def _flatten(item_list):
+        for item in item_list:
+            if isinstance(item, list):
+                yield from item
+            else:
+                yield item
+
+    to_add = list(_flatten(to_add))
     _async_add_entities(to_add, update_before_add=update_before_add)
     entities.clear()
 
@@ -202,6 +211,27 @@ class ProbeEndpoint:
                     entity_and_channel.entity_class,
                     f"{channel_pool.unique_id}-{first_ch.cluster.cluster_id}",
                     entity_and_channel.claimed_channel,
+                )
+
+    @staticmethod
+    @callback
+    def discover_device_entities(channels: zha_typing.ChannelsType) -> None:
+        """Process a zha device and discover multiple entities."""
+
+        matches = zha_regs.ZHA_ENTITIES.get_device_entities(channels.zha_device)
+
+        for component, entity_classes in matches.items():
+            for entity_class in entity_classes:
+                _LOGGER.debug(
+                    "'%s' component -> '%s' using %s",
+                    component,
+                    entity_class.__name__,
+                    channels.zha_device.name,
+                )
+        for component, entity_classes in matches.items():
+            for entity_class in entity_classes:
+                channels.async_new_entity(
+                    component, entity_class, channels.unique_id, []
                 )
 
     def initialize(self, hass: HomeAssistant) -> None:

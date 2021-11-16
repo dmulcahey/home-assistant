@@ -34,7 +34,7 @@ from .core.const import (
     SIGNAL_ATTR_UPDATED,
 )
 from .core.registries import ZHA_ENTITIES
-from .entity import ZhaEntity, ZhaGroupEntity
+from .entity import ZhaChannelBasedEntity, ZhaGroupEntity
 
 # Additional speeds in zigbee's ZCL
 # Spec is unclear as to what this value means. On King Of Fans HBUniversal
@@ -127,7 +127,7 @@ class BaseFan(FanEntity):
 
 
 @STRICT_MATCH(channel_names=CHANNEL_FAN)
-class ZhaFan(BaseFan, ZhaEntity):
+class ZhaFan(BaseFan, ZhaChannelBasedEntity):
     """Representation of a ZHA fan."""
 
     def __init__(self, unique_id, zha_device, channels, **kwargs):

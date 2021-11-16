@@ -58,7 +58,7 @@ from .core.const import (
     SIGNAL_ATTR_UPDATED,
 )
 from .core.registries import ZHA_ENTITIES
-from .entity import ZhaEntity
+from .entity import ZhaChannelBasedEntity
 
 ATTR_SYS_MODE = "system_mode"
 ATTR_RUNNING_MODE = "running_mode"
@@ -164,7 +164,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
 @MULTI_MATCH(channel_names=CHANNEL_THERMOSTAT, aux_channels=CHANNEL_FAN)
-class Thermostat(ZhaEntity, ClimateEntity):
+class Thermostat(ZhaChannelBasedEntity, ClimateEntity):
     """Representation of a ZHA Thermostat device."""
 
     DEFAULT_MAX_TEMP = 35

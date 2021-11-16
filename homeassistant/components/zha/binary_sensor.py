@@ -30,7 +30,7 @@ from .core.const import (
     SIGNAL_ATTR_UPDATED,
 )
 from .core.registries import ZHA_ENTITIES
-from .entity import ZhaEntity
+from .entity import ZhaChannelBasedEntity
 
 # Zigbee Cluster Library Zone Type to Home Assistant device class
 CLASS_MAPPING = {
@@ -59,7 +59,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     hass.data[DATA_ZHA][DATA_ZHA_DISPATCHERS].append(unsub)
 
 
-class BinarySensor(ZhaEntity, BinarySensorEntity):
+class BinarySensor(ZhaChannelBasedEntity, BinarySensorEntity):
     """ZHA BinarySensor."""
 
     SENSOR_ATTR = None

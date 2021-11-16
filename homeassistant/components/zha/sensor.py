@@ -5,6 +5,21 @@ import functools
 import numbers
 from typing import Any
 
+from bellows.zigbee.application import (
+    COUNTER_EZSP_BUFFERS,
+    COUNTER_NWK_CONFLICTS,
+    COUNTER_RESET_REQ,
+    COUNTER_RESET_SUCCESS,
+    COUNTER_RX_BCAST,
+    COUNTER_RX_MCAST,
+    COUNTER_RX_UNICAST,
+    COUNTER_UNKNOWN_DEVICE,
+    COUNTER_WATCHDOG,
+    COUNTERS_CTRL,
+    COUNTERS_EZSP,
+)
+from zigpy.zdo.types import LogicalType
+
 from homeassistant.components.climate.const import (
     CURRENT_HVAC_COOL,
     CURRENT_HVAC_FAN,
@@ -33,6 +48,7 @@ from homeassistant.const import (
     CONCENTRATION_PARTS_PER_BILLION,
     CONCENTRATION_PARTS_PER_MILLION,
     DEVICE_CLASS_ENERGY,
+    DEVICE_CLASS_SIGNAL_STRENGTH,
     ELECTRIC_CURRENT_AMPERE,
     ELECTRIC_POTENTIAL_VOLT,
     ENERGY_KILO_WATT_HOUR,
@@ -74,10 +90,11 @@ from .core.const import (
     DATA_ZHA_DISPATCHERS,
     SIGNAL_ADD_ENTITIES,
     SIGNAL_ATTR_UPDATED,
+    RadioType,
 )
 from .core.registries import SMARTTHINGS_HUMIDITY_CLUSTER, ZHA_ENTITIES
 from .core.typing import ChannelType, ZhaDeviceType
-from .entity import ZhaEntity
+from .entity import ZhaChannelBasedEntity, ZhaEntity
 
 PARALLEL_UPDATES = 5
 
@@ -97,9 +114,66 @@ BATTERY_SIZES = {
     255: "Unknown",
 }
 
+EZSP_COUNTERS = [
+    COUNTER_EZSP_BUFFERS,
+    "MAC_RX_BROADCAST",
+    "MAC_TX_BROADCAST",
+    "MAC_RX_UNICAST",
+    "MAC_TX_UNICAST_SUCCESS",
+    "MAC_TX_UNICAST_RETRY",
+    "MAC_TX_UNICAST_FAILED",
+    "APS_DATA_RX_BROADCAST",
+    "APS_DATA_TX_BROADCAST",
+    "APS_DATA_RX_UNICAST",
+    "APS_DATA_TX_UNICAST_SUCCESS",
+    "APS_DATA_TX_UNICAST_RETRY",
+    "APS_DATA_TX_UNICAST_FAILED",
+    "ROUTE_DISCOVERY_INITIATED",
+    "NEIGHBOR_ADDED",
+    "NEIGHBOR_REMOVED",
+    "NEIGHBOR_STALE",
+    "JOIN_INDICATION",
+    "CHILD_REMOVED",
+    "ASH_OVERFLOW_ERROR",
+    "ASH_FRAMING_ERROR",
+    "ASH_OVERRUN_ERROR",
+    "NWK_FRAME_COUNTER_FAILURE",
+    "APS_FRAME_COUNTER_FAILURE",
+    "UTILITY",
+    "APS_LINK_KEY_NOT_AUTHORIZED",
+    "NWK_DECRYPTION_FAILURE",
+    "APS_DECRYPTION_FAILURE",
+    "ALLOCATE_PACKET_BUFFER_FAILURE",
+    "RELAYED_UNICAST",
+    "PHY_TO_MAC_QUEUE_LIMIT_REACHED",
+    "PACKET_VALIDATE_LIBRARY_DROPPED_COUNT",
+    "TYPE_NWK_RETRY_OVERFLOW",
+    "PHY_CCA_FAIL_COUNT",
+    "BROADCAST_TABLE_FULL",
+    "PTA_LO_PRI_REQUESTED",
+    "PTA_HI_PRI_REQUESTED",
+    "PTA_LO_PRI_DENIED",
+    "PTA_HI_PRI_DENIED",
+    "PTA_LO_PRI_TX_ABORTED",
+    "PTA_HI_PRI_TX_ABORTED",
+    "ADDRESS_CONFLICT_SENT",
+]
+
+BELLOWS_COUNTERS = [
+    COUNTER_NWK_CONFLICTS,
+    COUNTER_RESET_REQ,
+    COUNTER_RESET_SUCCESS,
+    COUNTER_RX_BCAST,
+    COUNTER_RX_MCAST,
+    COUNTER_RX_UNICAST,
+    COUNTER_UNKNOWN_DEVICE,
+    COUNTER_WATCHDOG,
+]
+
 CHANNEL_ST_HUMIDITY_CLUSTER = f"channel_0x{SMARTTHINGS_HUMIDITY_CLUSTER:04x}"
 STRICT_MATCH = functools.partial(ZHA_ENTITIES.strict_match, DOMAIN)
 MULTI_MATCH = functools.partial(ZHA_ENTITIES.multipass_match, DOMAIN)
+MULTI_DEVICE_MATCH = functools.partial(ZHA_ENTITIES.multipass_device_match, DOMAIN)
 
 
 async def async_setup_entry(
@@ -123,7 +197,7 @@ async def async_setup_entry(
     hass.data[DATA_ZHA][DATA_ZHA_DISPATCHERS].append(unsub)
 
 
-class Sensor(ZhaEntity, SensorEntity):
+class ChannelBasedSensor(ZhaChannelBasedEntity, SensorEntity):
     """Base ZHA sensor."""
 
     SENSOR_ATTR: int | str | None = None
@@ -152,7 +226,7 @@ class Sensor(ZhaEntity, SensorEntity):
         zha_device: ZhaDeviceType,
         channels: list[ChannelType],
         **kwargs,
-    ) -> ZhaEntity | None:
+    ) -> ZhaChannelBasedEntity | None:
         """Entity Factory.
 
         Return entity if it is a supported configuration, otherwise return None
@@ -214,14 +288,14 @@ class Sensor(ZhaEntity, SensorEntity):
     models={"lumi.plug", "lumi.plug.maus01", "lumi.plug.mmeu01"},
 )
 @STRICT_MATCH(channel_names=CHANNEL_ANALOG_INPUT, manufacturers="Digi")
-class AnalogInput(Sensor):
+class AnalogInput(ChannelBasedSensor):
     """Sensor that displays analog input values."""
 
     SENSOR_ATTR = "present_value"
 
 
 @STRICT_MATCH(channel_names=CHANNEL_POWER_CONFIGURATION)
-class Battery(Sensor):
+class Battery(ChannelBasedSensor):
     """Battery sensor of power configuration cluster."""
 
     SENSOR_ATTR = "battery_percentage_remaining"
@@ -237,7 +311,7 @@ class Battery(Sensor):
         zha_device: ZhaDeviceType,
         channels: list[ChannelType],
         **kwargs,
-    ) -> ZhaEntity | None:
+    ) -> ZhaChannelBasedEntity | None:
         """Entity Factory.
 
         Unlike any other entity, PowerConfiguration cluster may not support
@@ -271,8 +345,182 @@ class Battery(Sensor):
         return state_attrs
 
 
+class DiagnosticSensor(ZhaEntity, SensorEntity):
+    """Diagnostic sensor class based on ZhaDevice."""
+
+    _attr_entity_category = ENTITY_CATEGORY_DIAGNOSTIC
+    _state_class: str | None = None
+
+    def __init__(
+        self,
+        unique_id: str,
+        zha_device: ZhaDeviceType,
+        name_suffix: str,
+        **kwargs,
+    ) -> None:
+        """Init this sensor."""
+        super().__init__(unique_id, zha_device, name_suffix, **kwargs)
+
+    @property
+    def should_poll(self) -> bool:
+        """Poll the entity for current state."""
+        return True
+
+    @property
+    def state_class(self) -> str | None:
+        """Return the state class of this entity, from STATE_CLASSES, if any."""
+        return self._state_class
+
+    async def async_added_to_hass(self) -> None:
+        """Run when about to be added to hass."""
+        await super().async_added_to_hass()
+
+    @callback
+    def async_set_state(self, attr_id: int, attr_name: str, value: Any) -> None:
+        """Handle state update from channel."""
+        self.async_write_ha_state()
+
+
+@MULTI_DEVICE_MATCH(
+    radio_descriptions=RadioType.ezsp.description,
+    device_types=LogicalType.Coordinator.name,
+)
+class CoordinatorDiagnosticSensor(DiagnosticSensor):
+    """Diagnostic sensors for the coordinator device."""
+
+    COUNTER_NAME: str | None = None
+    COUNTER_GROUP: str | None = None
+    _state_class = STATE_CLASS_TOTAL_INCREASING
+
+    def __init__(
+        self,
+        unique_id: str,
+        zha_device: ZhaDeviceType,
+        counter_group: str,
+        counter_name: str,
+        **kwargs,
+    ) -> None:
+        """Init this sensor."""
+        self.COUNTER_GROUP = counter_group
+        self.COUNTER_NAME = counter_name
+        super().__init__(
+            unique_id + "_" + counter_name,
+            zha_device,
+            self.COUNTER_NAME.replace("_", " ").title(),
+            **kwargs,
+        )
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the state of the entity."""
+        assert self.COUNTER_GROUP is not None
+        assert self.COUNTER_NAME is not None
+        raw_state = self._zha_device.gateway.application_controller.state.counters[
+            self.COUNTER_GROUP
+        ][self.COUNTER_NAME].value
+        if raw_state is None:
+            return None
+        return raw_state
+
+    @classmethod
+    def create_entity(
+        cls,
+        unique_id: str,
+        zha_device: ZhaDeviceType,
+        channels: list[ChannelType],
+        **kwargs,
+    ) -> ZhaChannelBasedEntity | None:
+        """Entity Factory.
+
+        Coordinator entities should always be created.
+        """
+        entities = [
+            CoordinatorDiagnosticSensor(
+                unique_id,
+                zha_device,
+                COUNTERS_EZSP,
+                counter_name,
+                **kwargs,
+            )
+            for counter_name in EZSP_COUNTERS
+        ]
+        entities.extend(
+            [
+                CoordinatorDiagnosticSensor(
+                    unique_id,
+                    zha_device,
+                    COUNTERS_CTRL,
+                    counter_name,
+                    **kwargs,
+                )
+                for counter_name in BELLOWS_COUNTERS
+            ]
+        )
+        return entities
+
+
+@MULTI_DEVICE_MATCH(device_types={LogicalType.EndDevice.name, LogicalType.Router.name})
+class RSSISensor(DiagnosticSensor):
+    """RSSI sensor for a device."""
+
+    _state_class = STATE_CLASS_MEASUREMENT
+    _device_class = DEVICE_CLASS_SIGNAL_STRENGTH
+
+    @classmethod
+    def create_entity(
+        cls,
+        unique_id: str,
+        zha_device: ZhaDeviceType,
+        channels: list[ChannelType],
+        **kwargs,
+    ) -> ZhaEntity | None:
+        """Entity Factory.
+
+        Diagnostic entities should always be created.
+        """
+        return cls(unique_id + "_" + "RSSI", zha_device, "RSSI", **kwargs)
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the state of the entity."""
+        raw_state = self._zha_device.device.rssi
+        if raw_state is None:
+            return None
+        return raw_state
+
+
+@MULTI_DEVICE_MATCH(device_types={LogicalType.EndDevice.name, LogicalType.Router.name})
+class LQISensor(DiagnosticSensor):
+    """LQI Sensor for a device."""
+
+    _state_class = STATE_CLASS_MEASUREMENT
+    _device_class = DEVICE_CLASS_SIGNAL_STRENGTH
+
+    @classmethod
+    def create_entity(
+        cls,
+        unique_id: str,
+        zha_device: ZhaDeviceType,
+        channels: list[ChannelType],
+        **kwargs,
+    ) -> ZhaEntity | None:
+        """Entity Factory.
+
+        Diagnostic entities should always be created.
+        """
+        return cls(unique_id + "_" + "LQI", zha_device, "LQI", **kwargs)
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the state of the entity."""
+        raw_state = self._zha_device.device.lqi
+        if raw_state is None:
+            return None
+        return raw_state
+
+
 @MULTI_MATCH(channel_names=CHANNEL_ELECTRICAL_MEASUREMENT)
-class ElectricalMeasurement(Sensor):
+class ElectricalMeasurement(ChannelBasedSensor):
     """Active power measurement."""
 
     SENSOR_ATTR = "active_power"
@@ -364,7 +612,7 @@ class ElectricalMeasurementRMSVoltage(ElectricalMeasurement, id_suffix="rms_volt
 
 @STRICT_MATCH(generic_ids=CHANNEL_ST_HUMIDITY_CLUSTER)
 @STRICT_MATCH(channel_names=CHANNEL_HUMIDITY)
-class Humidity(Sensor):
+class Humidity(ChannelBasedSensor):
     """Humidity sensor."""
 
     SENSOR_ATTR = "measured_value"
@@ -375,7 +623,7 @@ class Humidity(Sensor):
 
 
 @STRICT_MATCH(channel_names=CHANNEL_SOIL_MOISTURE)
-class SoilMoisture(Sensor):
+class SoilMoisture(ChannelBasedSensor):
     """Soil Moisture sensor."""
 
     SENSOR_ATTR = "measured_value"
@@ -386,7 +634,7 @@ class SoilMoisture(Sensor):
 
 
 @STRICT_MATCH(channel_names=CHANNEL_LEAF_WETNESS)
-class LeafWetness(Sensor):
+class LeafWetness(ChannelBasedSensor):
     """Leaf Wetness sensor."""
 
     SENSOR_ATTR = "measured_value"
@@ -397,7 +645,7 @@ class LeafWetness(Sensor):
 
 
 @STRICT_MATCH(channel_names=CHANNEL_ILLUMINANCE)
-class Illuminance(Sensor):
+class Illuminance(ChannelBasedSensor):
     """Illuminance Sensor."""
 
     SENSOR_ATTR = "measured_value"
@@ -411,7 +659,7 @@ class Illuminance(Sensor):
 
 
 @MULTI_MATCH(channel_names=CHANNEL_SMARTENERGY_METERING)
-class SmartEnergyMetering(Sensor):
+class SmartEnergyMetering(ChannelBasedSensor):
     """Metering sensor."""
 
     SENSOR_ATTR: int | str = "instantaneous_demand"
@@ -488,7 +736,7 @@ class SmartEnergySummation(SmartEnergyMetering, id_suffix="summation_delivered")
 
 
 @STRICT_MATCH(channel_names=CHANNEL_PRESSURE)
-class Pressure(Sensor):
+class Pressure(ChannelBasedSensor):
     """Pressure sensor."""
 
     SENSOR_ATTR = "measured_value"
@@ -499,7 +747,7 @@ class Pressure(Sensor):
 
 
 @STRICT_MATCH(channel_names=CHANNEL_TEMPERATURE)
-class Temperature(Sensor):
+class Temperature(ChannelBasedSensor):
     """Temperature Sensor."""
 
     SENSOR_ATTR = "measured_value"
@@ -510,7 +758,7 @@ class Temperature(Sensor):
 
 
 @STRICT_MATCH(channel_names="carbon_dioxide_concentration")
-class CarbonDioxideConcentration(Sensor):
+class CarbonDioxideConcentration(ChannelBasedSensor):
     """Carbon Dioxide Concentration sensor."""
 
     SENSOR_ATTR = "measured_value"
@@ -521,7 +769,7 @@ class CarbonDioxideConcentration(Sensor):
 
 
 @STRICT_MATCH(channel_names="carbon_monoxide_concentration")
-class CarbonMonoxideConcentration(Sensor):
+class CarbonMonoxideConcentration(ChannelBasedSensor):
     """Carbon Monoxide Concentration sensor."""
 
     SENSOR_ATTR = "measured_value"
@@ -533,7 +781,7 @@ class CarbonMonoxideConcentration(Sensor):
 
 @STRICT_MATCH(generic_ids="channel_0x042e")
 @STRICT_MATCH(channel_names="voc_level")
-class VOCLevel(Sensor):
+class VOCLevel(ChannelBasedSensor):
     """VOC Level sensor."""
 
     SENSOR_ATTR = "measured_value"
@@ -553,7 +801,7 @@ class PPBVOCLevel(Sensor):
 
 
 @STRICT_MATCH(channel_names="formaldehyde_concentration")
-class FormaldehydeConcentration(Sensor):
+class FormaldehydeConcentration(ChannelBasedSensor):
     """Formaldehyde Concentration sensor."""
 
     SENSOR_ATTR = "measured_value"
@@ -563,7 +811,7 @@ class FormaldehydeConcentration(Sensor):
 
 
 @MULTI_MATCH(channel_names=CHANNEL_THERMOSTAT)
-class ThermostatHVACAction(Sensor, id_suffix="hvac_action"):
+class ThermostatHVACAction(ChannelBasedSensor, id_suffix="hvac_action"):
     """Thermostat HVAC action sensor."""
 
     @classmethod
@@ -573,7 +821,7 @@ class ThermostatHVACAction(Sensor, id_suffix="hvac_action"):
         zha_device: ZhaDeviceType,
         channels: list[ChannelType],
         **kwargs,
-    ) -> ZhaEntity | None:
+    ) -> ZhaChannelBasedEntity | None:
         """Entity Factory.
 
         Return entity if it is a supported configuration, otherwise return None

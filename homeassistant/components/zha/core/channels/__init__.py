@@ -109,6 +109,7 @@ class Channels:
         channels = cls(zha_device)
         for ep_id in sorted(zha_device.device.endpoints):
             channels.add_pool(ep_id)
+        zha_disc.PROBE.discover_device_entities(channels)
         return channels
 
     def add_pool(self, ep_id: int) -> None:
@@ -184,6 +185,11 @@ class ChannelPool:
         self._id: int = ep_id
         self._client_channels: dict[str, zha_typing.ClientChannelType] = {}
         self._unique_id: str = f"{channels.unique_id}-{ep_id}"
+
+    @property
+    def zha_device(self) -> zha_typing.ZhaDeviceType:
+        """ZHA Device."""
+        return self._channels.zha_device
 
     @property
     def all_channels(self) -> ChannelsDict:

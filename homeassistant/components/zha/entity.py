@@ -146,48 +146,31 @@ class BaseZhaEntity(LogMixin, entity.Entity):
 class ZhaEntity(BaseZhaEntity, RestoreEntity):
     """A base class for non group ZHA entities."""
 
-    def __init_subclass__(cls, id_suffix: str | None = None, **kwargs) -> None:
-        """Initialize subclass.
-
-        :param id_suffix: suffix to add to the unique_id of the entity. Used for multi
-                          entities using the same channel/cluster id for the entity.
-        """
-        super().__init_subclass__(**kwargs)
-        if id_suffix:
-            cls._unique_id_suffix = id_suffix
-
     def __init__(
         self,
         unique_id: str,
         zha_device: ZhaDeviceType,
-        channels: list[ChannelType],
+        name_suffix: str,
         **kwargs,
     ) -> None:
         """Init ZHA entity."""
         super().__init__(unique_id, zha_device, **kwargs)
         ieeetail = "".join([f"{o:02x}" for o in zha_device.ieee[:4]])
-        ch_names = [ch.cluster.ep_attribute for ch in channels]
-        ch_names = ", ".join(sorted(ch_names))
-        self._name: str = f"{zha_device.name} {ieeetail} {ch_names}"
-        if self._unique_id_suffix:
-            self._name += f" {self._unique_id_suffix}"
-        self.cluster_channels: dict[str, ChannelType] = {}
-        for channel in channels:
-            self.cluster_channels[channel.name] = channel
+        self._name: str = f"{zha_device.name} {ieeetail} {name_suffix}"
 
     @classmethod
     def create_entity(
         cls,
         unique_id: str,
         zha_device: ZhaDeviceType,
-        channels: list[ChannelType],
+        name_suffix: str,
         **kwargs,
     ) -> ZhaEntity | None:
         """Entity Factory.
 
         Return entity if it is a supported configuration, otherwise return None
         """
-        return cls(unique_id, zha_device, channels, **kwargs)
+        return cls(unique_id, zha_device, name_suffix, **kwargs)
 
     @property
     def available(self) -> bool:
@@ -215,11 +198,14 @@ class ZhaEntity(BaseZhaEntity, RestoreEntity):
             self.async_state_changed,
             signal_override=True,
         )
+        cluster_channels = []
+        if hasattr(self, "cluster_channels"):
+            cluster_channels = self.cluster_channels
         self._zha_device.gateway.register_entity_reference(
             self._zha_device.ieee,
             self.entity_id,
             self._zha_device,
-            self.cluster_channels,
+            cluster_channels,
             self.device_info,
             self.remove_future,
         )
@@ -233,6 +219,54 @@ class ZhaEntity(BaseZhaEntity, RestoreEntity):
     @callback
     def async_restore_last_state(self, last_state) -> None:
         """Restore previous state."""
+
+    async def async_update(self) -> None:
+        """Retrieve latest state."""
+
+
+class ZhaChannelBasedEntity(ZhaEntity):
+    """A base class for channel based non group ZHA entities."""
+
+    def __init_subclass__(cls, id_suffix: str | None = None, **kwargs) -> None:
+        """Initialize subclass.
+
+        :param id_suffix: suffix to add to the unique_id of the entity. Used for multi
+                          entities using the same channel/cluster id for the entity.
+        """
+        super().__init_subclass__(**kwargs)
+        if id_suffix:
+            cls._unique_id_suffix = id_suffix
+
+    def __init__(
+        self,
+        unique_id: str,
+        zha_device: ZhaDeviceType,
+        channels: list[ChannelType],
+        **kwargs,
+    ) -> None:
+        """Init ZHA entity."""
+        ch_names = [ch.cluster.ep_attribute for ch in channels]
+        ch_names = ", ".join(sorted(ch_names))
+        super().__init__(unique_id, zha_device, ch_names, **kwargs)
+        self.cluster_channels: dict[str, ChannelType] = {}
+        for channel in channels:
+            self.cluster_channels[channel.name] = channel
+        if self._unique_id_suffix:
+            self._name += f" {self._unique_id_suffix}"
+
+    @classmethod
+    def create_entity(
+        cls,
+        unique_id: str,
+        zha_device: ZhaDeviceType,
+        channels: list[ChannelType],
+        **kwargs,
+    ) -> ZhaEntity | None:
+        """Entity Factory.
+
+        Return entity if it is a supported configuration, otherwise return None
+        """
+        return cls(unique_id, zha_device, channels, **kwargs)
 
     async def async_update(self) -> None:
         """Retrieve latest state."""

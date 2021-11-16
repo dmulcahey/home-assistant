@@ -41,7 +41,7 @@ from .core.const import (
 )
 from .core.helpers import async_get_zha_config_value
 from .core.registries import ZHA_ENTITIES
-from .entity import ZhaEntity
+from .entity import ZhaChannelBasedEntity
 
 STRICT_MATCH = functools.partial(ZHA_ENTITIES.strict_match, DOMAIN)
 
@@ -69,7 +69,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
 @STRICT_MATCH(channel_names=CHANNEL_IAS_ACE)
-class ZHAAlarmControlPanel(ZhaEntity, AlarmControlPanelEntity):
+class ZHAAlarmControlPanel(ZhaChannelBasedEntity, AlarmControlPanelEntity):
     """Entity for ZHA alarm control devices."""
 
     def __init__(self, unique_id, zha_device: ZhaDeviceType, channels, **kwargs):

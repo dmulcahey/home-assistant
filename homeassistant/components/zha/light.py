@@ -59,7 +59,7 @@ from .core.const import (
 from .core.helpers import LogMixin, async_get_zha_config_value
 from .core.registries import ZHA_ENTITIES
 from .core.typing import ZhaDeviceType
-from .entity import ZhaEntity, ZhaGroupEntity
+from .entity import ZhaChannelBasedEntity, ZhaGroupEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -342,7 +342,7 @@ class BaseLight(LogMixin, light.LightEntity):
 
 
 @STRICT_MATCH(channel_names=CHANNEL_ON_OFF, aux_channels={CHANNEL_COLOR, CHANNEL_LEVEL})
-class Light(BaseLight, ZhaEntity):
+class Light(BaseLight, ZhaChannelBasedEntity):
     """Representation of a ZHA or ZLL light."""
 
     _REFRESH_INTERVAL = (45, 75)

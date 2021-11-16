@@ -21,7 +21,7 @@ from .core.const import (
     SIGNAL_ATTR_UPDATED,
 )
 from .core.registries import ZHA_ENTITIES
-from .entity import ZhaEntity, ZhaGroupEntity
+from .entity import ZhaChannelBasedEntity, ZhaGroupEntity
 
 STRICT_MATCH = functools.partial(ZHA_ENTITIES.strict_match, DOMAIN)
 GROUP_MATCH = functools.partial(ZHA_ENTITIES.group_match, DOMAIN)
@@ -75,7 +75,7 @@ class BaseSwitch(SwitchEntity):
 
 
 @STRICT_MATCH(channel_names=CHANNEL_ON_OFF)
-class Switch(BaseSwitch, ZhaEntity):
+class Switch(BaseSwitch, ZhaChannelBasedEntity):
     """ZHA switch."""
 
     def __init__(self, unique_id, zha_device, channels, **kwargs):

@@ -15,7 +15,7 @@ from .core.const import (
     SIGNAL_ATTR_UPDATED,
 )
 from .core.registries import ZHA_ENTITIES
-from .entity import ZhaEntity
+from .entity import ZhaChannelBasedEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -251,7 +251,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
 @STRICT_MATCH(channel_names=CHANNEL_ANALOG_OUTPUT)
-class ZhaNumber(ZhaEntity, NumberEntity):
+class ZhaNumber(ZhaChannelBasedEntity, NumberEntity):
     """Representation of a ZHA Number entity."""
 
     def __init__(self, unique_id, zha_device, channels, **kwargs):

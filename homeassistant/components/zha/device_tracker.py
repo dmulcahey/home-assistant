@@ -16,7 +16,7 @@ from .core.const import (
     SIGNAL_ATTR_UPDATED,
 )
 from .core.registries import ZHA_ENTITIES
-from .entity import ZhaEntity
+from .entity import ZhaChannelBasedEntity
 from .sensor import Battery
 
 STRICT_MATCH = functools.partial(ZHA_ENTITIES.strict_match, DOMAIN)
@@ -37,7 +37,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
 @STRICT_MATCH(channel_names=CHANNEL_POWER_CONFIGURATION)
-class ZHADeviceScannerEntity(ScannerEntity, ZhaEntity):
+class ZHADeviceScannerEntity(ScannerEntity, ZhaChannelBasedEntity):
     """Represent a tracked device."""
 
     def __init__(self, unique_id, zha_device, channels, **kwargs):

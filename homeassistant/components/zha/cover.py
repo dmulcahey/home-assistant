@@ -33,7 +33,7 @@ from .core.const import (
 )
 from .core.registries import ZHA_ENTITIES
 from .core.typing import ChannelType, ZhaDeviceType
-from .entity import ZhaEntity
+from .entity import ZhaChannelBasedEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
 @STRICT_MATCH(channel_names=CHANNEL_COVER)
-class ZhaCover(ZhaEntity, CoverEntity):
+class ZhaCover(ZhaChannelBasedEntity, CoverEntity):
     """Representation of a ZHA cover."""
 
     def __init__(self, unique_id, zha_device, channels, **kwargs):
@@ -174,7 +174,7 @@ class ZhaCover(ZhaEntity, CoverEntity):
 
 
 @STRICT_MATCH(channel_names={CHANNEL_LEVEL, CHANNEL_ON_OFF, CHANNEL_SHADE})
-class Shade(ZhaEntity, CoverEntity):
+class Shade(ZhaChannelBasedEntity, CoverEntity):
     """ZHA Shade."""
 
     _attr_device_class = DEVICE_CLASS_SHADE

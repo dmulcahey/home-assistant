@@ -23,7 +23,7 @@ from .core.const import (
     SIGNAL_ATTR_UPDATED,
 )
 from .core.registries import ZHA_ENTITIES
-from .entity import ZhaEntity
+from .entity import ZhaChannelBasedEntity
 
 # The first state is Zigbee 'Not fully locked'
 STATE_LIST = [STATE_UNLOCKED, STATE_LOCKED, STATE_UNLOCKED]
@@ -87,7 +87,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
 @STRICT_MATCH(channel_names=CHANNEL_DOORLOCK)
-class ZhaDoorLock(ZhaEntity, LockEntity):
+class ZhaDoorLock(ZhaChannelBasedEntity, LockEntity):
     """Representation of a ZHA lock."""
 
     def __init__(self, unique_id, zha_device, channels, **kwargs):
