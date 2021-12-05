@@ -403,6 +403,7 @@ class CoordinatorDiagnosticSensor(DiagnosticSensor):
         """Init this sensor."""
         self.COUNTER_GROUP = counter_group
         self.COUNTER_NAME = counter_name
+        self._enabled_default: bool = counter_group == COUNTERS_CTRL
         super().__init__(
             unique_id + "_" + counter_name,
             zha_device,
@@ -421,6 +422,11 @@ class CoordinatorDiagnosticSensor(DiagnosticSensor):
         if raw_state is None:
             return None
         return raw_state
+
+    @property
+    def entity_registry_enabled_default(self) -> bool:
+        """Return if the entity should be enabled when first added to the entity registry."""
+        return self._enabled_default
 
     @classmethod
     def create_entity(
@@ -791,7 +797,7 @@ class VOCLevel(ChannelBasedSensor):
 
 
 @STRICT_MATCH(channel_names="voc_level", models="lumi.airmonitor.acn01")
-class PPBVOCLevel(Sensor):
+class PPBVOCLevel(ChannelBasedSensor):
     """VOC Level sensor."""
 
     SENSOR_ATTR = "measured_value"
