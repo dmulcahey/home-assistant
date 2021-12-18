@@ -302,7 +302,7 @@ class ZHADevice(LogMixin):
     def consider_unavailable_time(self):
         """Return the time in seconds that determines if the device is unavailable."""
         if self.is_mains_powered:
-            return self._data_cache.get(
+            return self.data_cache.get(
                 DEVICE_UNAVAILABLE_TIME,
                 async_get_zha_config_value(
                     self._zha_gateway.config_entry,
@@ -312,7 +312,7 @@ class ZHADevice(LogMixin):
                 ),
             )
         else:
-            return self._data_cache.get(
+            return self.data_cache.get(
                 DEVICE_UNAVAILABLE_TIME,
                 async_get_zha_config_value(
                     self._zha_gateway.config_entry,
