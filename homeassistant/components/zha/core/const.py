@@ -220,6 +220,8 @@ ZHA_CONFIG_SCHEMAS = {
     ZHA_ALARM_OPTIONS: CONF_ZHA_ALARM_SCHEMA,
 }
 
+DEVICE_UNAVAILABLE_TIME = CHANNEL_BASIC + "_unavailable_time"
+
 
 class RadioType(enum.Enum):
     """Possible options for radio type."""

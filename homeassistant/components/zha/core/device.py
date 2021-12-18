@@ -60,6 +60,7 @@ from .const import (
     CONF_DEFAULT_CONSIDER_UNAVAILABLE_BATTERY,
     CONF_DEFAULT_CONSIDER_UNAVAILABLE_MAINS,
     CONF_ENABLE_IDENTIFY_ON_JOIN,
+    DEVICE_UNAVAILABLE_TIME,
     EFFECT_DEFAULT_VARIANT,
     EFFECT_OKAY,
     POWER_BATTERY_OR_UNKNOWN,
@@ -108,21 +109,6 @@ class ZHADevice(LogMixin):
             f"{self._zigpy_device.__class__.__name__}"
         )
 
-        if self.is_mains_powered:
-            self.consider_unavailable_time = async_get_zha_config_value(
-                self._zha_gateway.config_entry,
-                ZHA_OPTIONS,
-                CONF_CONSIDER_UNAVAILABLE_MAINS,
-                CONF_DEFAULT_CONSIDER_UNAVAILABLE_MAINS,
-            )
-        else:
-            self.consider_unavailable_time = async_get_zha_config_value(
-                self._zha_gateway.config_entry,
-                ZHA_OPTIONS,
-                CONF_CONSIDER_UNAVAILABLE_BATTERY,
-                CONF_DEFAULT_CONSIDER_UNAVAILABLE_BATTERY,
-            )
-
         keep_alive_interval = random.randint(*_UPDATE_ALIVE_INTERVAL)
         self.unsubs.append(
             async_track_time_interval(
@@ -132,6 +118,7 @@ class ZHADevice(LogMixin):
         self._ha_device_id = None
         self.status = DeviceStatus.CREATED
         self._channels = channels.Channels(self)
+        self._data_cache = {}
 
     @property
     def device_id(self):
@@ -310,6 +297,30 @@ class ZHADevice(LogMixin):
             ATTR_NODE_DESCRIPTOR: str(self._zigpy_device.node_desc),
             ATTR_ENDPOINTS: self._channels.zigbee_signature,
         }
+
+    @property
+    def consider_unavailable_time(self):
+        """Return the time in seconds that determines if the device is unavailable."""
+        if self.is_mains_powered:
+            return self._data_cache.get(
+                DEVICE_UNAVAILABLE_TIME,
+                async_get_zha_config_value(
+                    self._zha_gateway.config_entry,
+                    ZHA_OPTIONS,
+                    CONF_CONSIDER_UNAVAILABLE_MAINS,
+                    CONF_DEFAULT_CONSIDER_UNAVAILABLE_MAINS,
+                ),
+            )
+        else:
+            return self._data_cache.get(
+                DEVICE_UNAVAILABLE_TIME,
+                async_get_zha_config_value(
+                    self._zha_gateway.config_entry,
+                    ZHA_OPTIONS,
+                    CONF_CONSIDER_UNAVAILABLE_BATTERY,
+                    CONF_DEFAULT_CONSIDER_UNAVAILABLE_BATTERY,
+                ),
+            )
 
     @classmethod
     def new(

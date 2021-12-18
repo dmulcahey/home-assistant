@@ -1,27 +1,40 @@
 """Support for ZHA AnalogOutput cluster."""
+from __future__ import annotations
+
 import functools
 import logging
 
 from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import (
+    ENTITY_CATEGORY_CONFIG,
+    STATE_UNKNOWN,
+    TIME_SECONDS,
+    Platform,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .core import discovery
+from .core.channels.general import BasicChannel
 from .core.const import (
     CHANNEL_ANALOG_OUTPUT,
+    CHANNEL_BASIC,
+    CONF_DEFAULT_CONSIDER_UNAVAILABLE_BATTERY,
     DATA_ZHA,
+    DEVICE_UNAVAILABLE_TIME,
     SIGNAL_ADD_ENTITIES,
     SIGNAL_ATTR_UPDATED,
 )
 from .core.registries import ZHA_ENTITIES
+from .core.typing import ChannelType, ZhaDeviceType
 from .entity import ZhaEntity
 
 _LOGGER = logging.getLogger(__name__)
 
 STRICT_MATCH = functools.partial(ZHA_ENTITIES.strict_match, Platform.NUMBER)
+MULTI_MATCH = functools.partial(ZHA_ENTITIES.multipass_match, Platform.NUMBER)
 
 
 UNITS = {
@@ -343,3 +356,57 @@ class ZhaNumber(ZhaEntity, NumberEntity):
                 "present_value", from_cache=False
             )
             _LOGGER.debug("read value=%s", value)
+
+
+@MULTI_MATCH(channel_names=CHANNEL_BASIC)
+class ZHAUnavailableTimeNumber(ZhaEntity, NumberEntity, id_suffix="unavailable_time"):
+    """Representation of a ZHA Number entity for device unavailable time."""
+
+    _attr_max_value: float = (
+        CONF_DEFAULT_CONSIDER_UNAVAILABLE_BATTERY * 4
+    )  # 24 hours (seconds)
+    _attr_min_value: float = 60  # seconds
+    _attr_step: float = 1
+    _attr_unit_of_measurement: str = TIME_SECONDS
+    _attr_name: str = "Consider Unavailable After"
+    _attr_icon: str = "mdi:timer"
+    _attr_entity_registry_enabled_default = False
+    _attr_entity_category = ENTITY_CATEGORY_CONFIG
+
+    @classmethod
+    def create_entity(
+        cls,
+        unique_id: str,
+        zha_device: ZhaDeviceType,
+        channels: list[ChannelType],
+        **kwargs,
+    ) -> ZhaEntity | None:
+        """Entity Factory. Return entity if it is a supported configuration, otherwise return None."""
+
+        if ZHA_ENTITIES.prevent_entity_creation(
+            Platform.NUMBER, zha_device.ieee, DEVICE_UNAVAILABLE_TIME
+        ):
+            return None
+        return cls(unique_id, zha_device, channels, **kwargs)
+
+    def __init__(self, unique_id, zha_device, channels, **kwargs):
+        """Init this entity."""
+        super().__init__(unique_id, zha_device, channels, **kwargs)
+        self._channel: BasicChannel = channels[0]
+
+    @property
+    def value(self):
+        """Return the current value."""
+        return self.zha_device.data_cache.get(DEVICE_UNAVAILABLE_TIME)
+
+    async def async_set_value(self, value):
+        """Update the current value from HA."""
+        num_value = int(value)
+        self.zha_device.data_cache[DEVICE_UNAVAILABLE_TIME] = num_value
+        self.async_write_ha_state()
+
+    @callback
+    def async_restore_last_state(self, last_state) -> None:
+        """Restore previous state."""
+        if last_state.state and last_state.state != STATE_UNKNOWN:
+            self.zha_device.data_cache[DEVICE_UNAVAILABLE_TIME] = last_state.state
