@@ -402,7 +402,7 @@ class ZHAUnavailableTimeNumber(ZhaEntity, NumberEntity, id_suffix="unavailable_t
     async def async_set_value(self, value):
         """Update the current value from HA."""
         num_value = int(value)
-        self.zha_device.data_cache[DEVICE_UNAVAILABLE_TIME] = num_value
+        self.zha_device.data_cache[DEVICE_UNAVAILABLE_TIME] = int(num_value)
         self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
@@ -415,4 +415,4 @@ class ZHAUnavailableTimeNumber(ZhaEntity, NumberEntity, id_suffix="unavailable_t
     def async_restore_last_state(self, last_state) -> None:
         """Restore previous state."""
         if last_state.state and last_state.state != STATE_UNKNOWN:
-            self.zha_device.data_cache[DEVICE_UNAVAILABLE_TIME] = last_state.state
+            self.zha_device.data_cache[DEVICE_UNAVAILABLE_TIME] = int(last_state.state)
