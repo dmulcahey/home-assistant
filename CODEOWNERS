@@ -1176,6 +1176,8 @@ homeassistant/components/zerproc/* @emlove
 tests/components/zerproc/* @emlove
 homeassistant/components/zha/* @dmulcahey @adminiuga
 tests/components/zha/* @dmulcahey @adminiuga
+homeassistant/components/zhaws/* @dmulcahey
+tests/components/zhaws/* @dmulcahey
 homeassistant/components/zodiac/* @JulienTant
 tests/components/zodiac/* @JulienTant
 homeassistant/components/zone/* @home-assistant/core
