@@ -16,7 +16,6 @@ from .const import COORDINATOR_IEEE, DOMAIN
 
 """
     Platform.CLIMATE,
-    Platform.DEVICE_TRACKER,
     Platform.FAN,
     """
 PLATFORMS = [
@@ -24,6 +23,7 @@ PLATFORMS = [
     Platform.BUTTON,
     Platform.BINARY_SENSOR,
     Platform.COVER,
+    Platform.DEVICE_TRACKER,
     Platform.LIGHT,
     Platform.LOCK,
     Platform.NUMBER,
