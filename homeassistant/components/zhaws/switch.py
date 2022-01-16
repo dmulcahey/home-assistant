@@ -1,12 +1,14 @@
 """Switches on Zigbee Home Automation networks."""
 from __future__ import annotations
 
+import functools
 import logging
 
 from zhaws.client.model.commands import CommandResponse
 from zhaws.client.model.events import PlatformEntityEvent
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.zhaws import ENTITY_CLASS_REGISTRY
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON, Platform
 from homeassistant.core import HomeAssistant, callback
@@ -14,6 +16,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ZHAWS
 from .entity import ZhaEntity
+
+REGISTER_CLASS = functools.partial(ENTITY_CLASS_REGISTRY.register, Platform.SWITCH)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,10 +32,15 @@ async def async_setup_entry(
     devices = hass.data[ZHAWS][config_entry.entry_id].devices
     for device in devices.values():
         for entity in device.device.entities.values():
-            _LOGGER.info("processed entity: %s", entity)
-            if entity.platform == Platform.SWITCH and entity.class_name == "Switch":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(Switch(device, entity))
+            _LOGGER.debug("processed entity: %s", entity)
+            if entity.platform != Platform.SWITCH:
+                continue
+            entity_class = ENTITY_CLASS_REGISTRY[Platform.SWITCH][entity.class_name]
+            _LOGGER.warning(
+                "Creating entity: %s with class: %s", entity, entity_class.__name__
+            )
+            entities.append(entity_class(device, entity))
+
     async_add_entities(entities)
 
 
@@ -51,6 +60,7 @@ class BaseSwitch(SwitchEntity):
         return self._state
 
 
+@REGISTER_CLASS()
 class Switch(BaseSwitch, ZhaEntity):
     """ZHA switch."""
 
