@@ -36,21 +36,9 @@ from homeassistant.helpers.typing import StateType
 
 from .entity import ZhaEntity
 
-BATTERY_SIZES = {
-    0: "No battery",
-    1: "Built in",
-    2: "Other",
-    3: "AA",
-    4: "AAA",
-    5: "C",
-    6: "D",
-    7: "CR2",
-    8: "CR123A",
-    9: "CR2450",
-    10: "CR2032",
-    11: "CR1632",
-    255: "Unknown",
-}
+BATTERY_SIZE = "battery_size"
+BATTERY_LEVEL = "battery_level"
+BATTERY_VOLTAGE = "battery_voltage"
 
 REGISTER_CLASS = functools.partial(ENTITY_CLASS_REGISTRY.register, Platform.SENSOR)
 
@@ -62,7 +50,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Flo sensors from config entry."""
+    """Set up the zhaws sensors from config entry."""
     entities: list[Sensor] = []
     devices = hass.data[ZHAWS][config_entry.entry_id].devices
     for device in devices.values():
@@ -127,11 +115,13 @@ class Battery(Sensor):
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
         self._state = event.state["state"]
-        self._extra_state_attributes = {
-            "battery_size": event.state["battery_size"],
-            "battery_quantity": event.state["battery_quantity"],
-            "battery_voltage": event.state["battery_voltage"],
-        }
+        self._extra_state_attributes = {}
+        if BATTERY_SIZE in event.state:
+            self._extra_state_attributes[BATTERY_SIZE] = event.state[BATTERY_SIZE]
+        if BATTERY_LEVEL in event.state:
+            self._extra_state_attributes[BATTERY_LEVEL] = event.state[BATTERY_LEVEL]
+        if BATTERY_VOLTAGE in event.state:
+            self._extra_state_attributes[BATTERY_VOLTAGE] = event.state[BATTERY_VOLTAGE]
         self.async_write_ha_state()
 
 

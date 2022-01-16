@@ -39,7 +39,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Flo sensors from config entry."""
+    """Set up the zhaws sensors from config entry."""
     entities: list[BinarySensor] = []
     devices = hass.data[ZHAWS][config_entry.entry_id].devices
     for device in devices.values():
@@ -70,7 +70,11 @@ class BinarySensor(ZhaEntity, BinarySensorEntity):
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
-        _LOGGER.warning("Handling platform entity state changed: %s", event)
+        _LOGGER.warning(
+            "Handling platform entity: %s state changed: %s",
+            f"{self.unique_id}-{self.entity_id}",
+            event,
+        )
         self._state = bool(event.state)
         self.async_write_ha_state()
 
