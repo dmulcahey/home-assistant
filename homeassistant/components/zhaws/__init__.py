@@ -18,15 +18,14 @@ from .const import COORDINATOR_IEEE, DOMAIN
     Platform.CLIMATE,
     Platform.DEVICE_TRACKER,
     Platform.FAN,
-    Platform.LIGHT,
     Platform.NUMBER,
-    Platform.SENSOR,
     """
 PLATFORMS = [
     Platform.ALARM_CONTROL_PANEL,
     Platform.BUTTON,
     Platform.BINARY_SENSOR,
     Platform.COVER,
+    Platform.LIGHT,
     Platform.LOCK,
     Platform.SELECT,
     Platform.SENSOR,
