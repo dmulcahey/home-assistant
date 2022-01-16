@@ -8,12 +8,12 @@ from zhaws.client.model.commands import CommandResponse
 from zhaws.client.model.events import PlatformEntityEvent
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.components.zhaws import ENTITY_CLASS_REGISTRY
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from . import ENTITY_CLASS_REGISTRY
 from .const import ZHAWS
 from .entity import ZhaEntity
 

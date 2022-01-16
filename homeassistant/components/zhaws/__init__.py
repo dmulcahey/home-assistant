@@ -15,20 +15,24 @@ from homeassistant.helpers.device_registry import CONNECTION_ZIGBEE
 from .const import COORDINATOR_IEEE, DOMAIN
 
 """
-    Platform.ALARM_CONTROL_PANEL,
-    Platform.BUTTON,
     Platform.CLIMATE,
-    Platform.COVER,
     Platform.DEVICE_TRACKER,
     Platform.FAN,
     Platform.LIGHT,
-    Platform.LOCK,
     Platform.NUMBER,
+    Platform.SENSOR,
+    """
+PLATFORMS = [
+    Platform.ALARM_CONTROL_PANEL,
+    Platform.BUTTON,
+    Platform.BINARY_SENSOR,
+    Platform.COVER,
+    Platform.LOCK,
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SIREN,
-    """
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SWITCH]
+    Platform.SWITCH,
+]
 
 
 CALLABLE_T = TypeVar("CALLABLE_T", bound=Callable)  # pylint: disable=invalid-name
@@ -37,7 +41,9 @@ CALLABLE_T = TypeVar("CALLABLE_T", bound=Callable)  # pylint: disable=invalid-na
 class EntityClassRegistry(dict):
     """Dict Registry of class name to class."""
 
-    def register(self, platform: str) -> Callable[[CALLABLE_T], CALLABLE_T]:
+    def register(
+        self, platform: str, alternate_class_names: list[str] = []
+    ) -> Callable[[CALLABLE_T], CALLABLE_T]:
         """Return decorator to register item with a specific name."""
 
         def decorator(entity_class: CALLABLE_T) -> CALLABLE_T:
@@ -45,6 +51,9 @@ class EntityClassRegistry(dict):
             if platform not in self:
                 self[platform] = {}
             self[platform][entity_class.__name__] = entity_class
+            if alternate_class_names:
+                for name in alternate_class_names:
+                    self[platform][name] = entity_class
             return entity_class
 
         return decorator

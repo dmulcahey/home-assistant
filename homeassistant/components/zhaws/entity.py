@@ -136,7 +136,9 @@ class ZhaEntity(BaseZhaEntity, RestoreEntity):
     @property
     def available(self) -> bool:
         """Return entity availability."""
-        return self._device.device.available
+        return True
+        # TODO force all available for now
+        # return self._device.device.available
 
     async def async_added_to_hass(self) -> None:
         """Run when about to be added to hass."""
