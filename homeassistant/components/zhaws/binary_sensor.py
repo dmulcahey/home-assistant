@@ -1,4 +1,5 @@
 """Binary sensors on Zigbee Home Automation networks."""
+import functools
 import logging
 
 from zhaws.client.model.events import PlatformEntityEvent
@@ -7,6 +8,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
+from homeassistant.components.zhaws import ENTITY_CLASS_REGISTRY
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON, Platform
 from homeassistant.core import HomeAssistant, callback
@@ -25,6 +27,10 @@ CLASS_MAPPING = {
     0x002D: BinarySensorDeviceClass.VIBRATION,
 }
 
+REGISTER_CLASS = functools.partial(
+    ENTITY_CLASS_REGISTRY.register, Platform.BINARY_SENSOR
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -38,27 +44,16 @@ async def async_setup_entry(
     devices = hass.data[ZHAWS][config_entry.entry_id].devices
     for device in devices.values():
         for entity in device.device.entities.values():
-            _LOGGER.info("processed entity: %s", entity)
+            _LOGGER.debug("processed entity: %s", entity)
             if entity.platform != Platform.BINARY_SENSOR:
                 continue
-            if entity.class_name == "Accelerometer":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(Accelerometer(device, entity))
-            elif entity.class_name == "BinaryInput":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(BinaryInput(device, entity))
-            elif entity.class_name == "Occupancy":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(Occupancy(device, entity))
-            elif entity.class_name == "Opening":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(Opening(device, entity))
-            elif entity.class_name == "Motion":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(Motion(device, entity))
-            elif entity.class_name == "IASZone":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(IASZone(device, entity))
+            entity_class = ENTITY_CLASS_REGISTRY[Platform.BINARY_SENSOR][
+                entity.class_name
+            ]
+            _LOGGER.warning(
+                "Creating entity: %s with class: %s", entity, entity_class.__name__
+            )
+            entities.append(entity_class(device, entity))
 
     async_add_entities(entities)
 
@@ -87,34 +82,40 @@ class BinarySensor(ZhaEntity, BinarySensorEntity):
         return self._state
 
 
+@REGISTER_CLASS()
 class Accelerometer(BinarySensor):
     """ZHA BinarySensor."""
 
     _attr_device_class: BinarySensorDeviceClass = BinarySensorDeviceClass.MOVING
 
 
+@REGISTER_CLASS()
 class Occupancy(BinarySensor):
     """ZHA BinarySensor."""
 
     _attr_device_class: BinarySensorDeviceClass = BinarySensorDeviceClass.OCCUPANCY
 
 
+@REGISTER_CLASS()
 class Opening(BinarySensor):
     """ZHA BinarySensor."""
 
     _attr_device_class: BinarySensorDeviceClass = BinarySensorDeviceClass.OPENING
 
 
+@REGISTER_CLASS()
 class BinaryInput(BinarySensor):
     """ZHA BinarySensor."""
 
 
+@REGISTER_CLASS()
 class Motion(BinarySensor):
     """ZHA BinarySensor."""
 
     _attr_device_class: BinarySensorDeviceClass = BinarySensorDeviceClass.MOTION
 
 
+@REGISTER_CLASS()
 class IASZone(BinarySensor):
     """ZHA IAS BinarySensor."""
 

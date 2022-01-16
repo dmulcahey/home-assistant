@@ -1,6 +1,8 @@
 """The ZHAWS integration."""
 from __future__ import annotations
 
+from typing import Callable, TypeVar
+
 from zhaws.client.controller import Controller
 from zhaws.client.device import Device
 
@@ -27,6 +29,28 @@ from .const import COORDINATOR_IEEE, DOMAIN
     Platform.SIREN,
     """
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SWITCH]
+
+
+CALLABLE_T = TypeVar("CALLABLE_T", bound=Callable)  # pylint: disable=invalid-name
+
+
+class EntityClassRegistry(dict):
+    """Dict Registry of class name to class."""
+
+    def register(self, platform: str) -> Callable[[CALLABLE_T], CALLABLE_T]:
+        """Return decorator to register item with a specific name."""
+
+        def decorator(entity_class: CALLABLE_T) -> CALLABLE_T:
+            """Register decorated channel or item."""
+            if platform not in self:
+                self[platform] = {}
+            self[platform][entity_class.__name__] = entity_class
+            return entity_class
+
+        return decorator
+
+
+ENTITY_CLASS_REGISTRY = EntityClassRegistry()
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

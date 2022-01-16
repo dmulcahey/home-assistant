@@ -1,6 +1,7 @@
 """Sensors on Zigbee Home Automation networks."""
 from __future__ import annotations
 
+import functools
 import logging
 
 from zhaws.client.model.events import PlatformEntityEvent
@@ -10,6 +11,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
+from homeassistant.components.zhaws import ENTITY_CLASS_REGISTRY
 from homeassistant.components.zhaws.const import ZHAWS
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -50,10 +52,12 @@ BATTERY_SIZES = {
     255: "Unknown",
 }
 
+REGISTER_CLASS = functools.partial(ENTITY_CLASS_REGISTRY.register, Platform.SENSOR)
+
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(  # noqa: C901
+async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
@@ -63,78 +67,14 @@ async def async_setup_entry(  # noqa: C901
     devices = hass.data[ZHAWS][config_entry.entry_id].devices
     for device in devices.values():
         for entity in device.device.entities.values():
-            _LOGGER.info("processed entity: %s", entity)
+            _LOGGER.debug("processed entity: %s", entity)
             if entity.platform != Platform.SENSOR:
                 continue
-            if entity.class_name == "AnalogInput":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(AnalogInput(device, entity))
-            elif entity.class_name == "Battery":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(Battery(device, entity))
-            elif entity.class_name == "Humidity":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(Humidity(device, entity))
-            elif entity.class_name == "Illuminance":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(Illuminance(device, entity))
-            elif entity.class_name == "ElectricalMeasurement":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(ElectricalMeasurement(device, entity))
-            elif entity.class_name == "ElectricalMeasurementApparentPower":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(ElectricalMeasurementApparentPower(device, entity))
-            elif entity.class_name == "ElectricalMeasurementRMSCurrent":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(ElectricalMeasurementRMSCurrent(device, entity))
-            elif entity.class_name == "ElectricalMeasurementRMSVoltage":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(ElectricalMeasurementRMSVoltage(device, entity))
-            elif entity.class_name == "SoilMoisture":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(SoilMoisture(device, entity))
-            elif entity.class_name == "Temperature":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(Temperature(device, entity))
-            elif entity.class_name == "LeafWetness":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(LeafWetness(device, entity))
-            elif entity.class_name == "SmartEnergyMetering":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(SmartEnergyMetering(device, entity))
-            elif entity.class_name == "SmartEnergySummation":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(SmartEnergySummation(device, entity))
-            elif entity.class_name == "Pressure":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(Pressure(device, entity))
-            elif entity.class_name == "CarbonDioxideConcentration":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(CarbonDioxideConcentration(device, entity))
-            elif entity.class_name == "CarbonMonoxideConcentration":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(CarbonMonoxideConcentration(device, entity))
-            elif entity.class_name == "VOCLevel":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(VOCLevel(device, entity))
-            elif entity.class_name == "PPBVOCLevel":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(PPBVOCLevel(device, entity))
-            elif entity.class_name == "FormaldehydeConcentration":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(FormaldehydeConcentration(device, entity))
-            elif entity.class_name == "ThermostatHVACAction":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(ThermostatHVACAction(device, entity))
-            elif entity.class_name == "SinopeHVACAction":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(SinopeHVACAction(device, entity))
-            elif entity.class_name == "RSSISensor":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(RSSISensor(device, entity))
-            elif entity.class_name == "LQISensor":
-                _LOGGER.warning("adding entity: %s", entity)
-                entities.append(LQISensor(device, entity))
+            entity_class = ENTITY_CLASS_REGISTRY[Platform.SENSOR][entity.class_name]
+            _LOGGER.warning(
+                "Creating entity: %s with class: %s", entity, entity_class.__name__
+            )
+            entities.append(entity_class(device, entity))
 
     async_add_entities(entities)
 
@@ -168,10 +108,12 @@ class Sensor(ZhaEntity, SensorEntity):
         return self._state
 
 
+@REGISTER_CLASS()
 class AnalogInput(Sensor):
     """Sensor that displays analog input values."""
 
 
+@REGISTER_CLASS()
 class Battery(Sensor):
     """Battery sensor of power configuration cluster."""
 
@@ -193,6 +135,7 @@ class Battery(Sensor):
         self.async_write_ha_state()
 
 
+@REGISTER_CLASS()
 class ElectricalMeasurement(Sensor):
     """Active power measurement."""
 
@@ -216,6 +159,7 @@ class ElectricalMeasurement(Sensor):
     """
 
 
+@REGISTER_CLASS()
 class ElectricalMeasurementApparentPower(ElectricalMeasurement):
     """Apparent power measurement."""
 
@@ -223,6 +167,7 @@ class ElectricalMeasurementApparentPower(ElectricalMeasurement):
     _unit = POWER_VOLT_AMPERE
 
 
+@REGISTER_CLASS()
 class ElectricalMeasurementRMSCurrent(ElectricalMeasurement):
     """RMS current measurement."""
 
@@ -230,6 +175,7 @@ class ElectricalMeasurementRMSCurrent(ElectricalMeasurement):
     _unit = ELECTRIC_CURRENT_AMPERE
 
 
+@REGISTER_CLASS()
 class ElectricalMeasurementRMSVoltage(ElectricalMeasurement):
     """RMS Voltage measurement."""
 
@@ -237,6 +183,7 @@ class ElectricalMeasurementRMSVoltage(ElectricalMeasurement):
     _unit = ELECTRIC_POTENTIAL_VOLT
 
 
+@REGISTER_CLASS()
 class Humidity(Sensor):
     """Humidity sensor."""
 
@@ -245,6 +192,7 @@ class Humidity(Sensor):
     _unit = PERCENTAGE
 
 
+@REGISTER_CLASS()
 class SoilMoisture(Sensor):
     """Soil Moisture sensor."""
 
@@ -253,6 +201,7 @@ class SoilMoisture(Sensor):
     _unit = PERCENTAGE
 
 
+@REGISTER_CLASS()
 class LeafWetness(Sensor):
     """Leaf Wetness sensor."""
 
@@ -261,6 +210,7 @@ class LeafWetness(Sensor):
     _unit = PERCENTAGE
 
 
+@REGISTER_CLASS()
 class Illuminance(Sensor):
     """Illuminance Sensor."""
 
@@ -269,6 +219,7 @@ class Illuminance(Sensor):
     _unit = LIGHT_LUX
 
 
+@REGISTER_CLASS()
 class SmartEnergyMetering(Sensor):
     """Metering sensor."""
 
@@ -288,6 +239,7 @@ class SmartEnergyMetering(Sensor):
     """
 
 
+@REGISTER_CLASS()
 class SmartEnergySummation(SmartEnergyMetering):
     """Smart Energy Metering summation sensor."""
 
@@ -295,6 +247,7 @@ class SmartEnergySummation(SmartEnergyMetering):
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
 
 
+@REGISTER_CLASS()
 class Pressure(Sensor):
     """Pressure sensor."""
 
@@ -303,6 +256,7 @@ class Pressure(Sensor):
     _unit = PRESSURE_HPA
 
 
+@REGISTER_CLASS()
 class Temperature(Sensor):
     """Temperature Sensor."""
 
@@ -311,6 +265,7 @@ class Temperature(Sensor):
     _unit = TEMP_CELSIUS
 
 
+@REGISTER_CLASS()
 class CarbonDioxideConcentration(Sensor):
     """Carbon Dioxide Concentration sensor."""
 
@@ -319,6 +274,7 @@ class CarbonDioxideConcentration(Sensor):
     _unit = CONCENTRATION_PARTS_PER_MILLION
 
 
+@REGISTER_CLASS()
 class CarbonMonoxideConcentration(Sensor):
     """Carbon Monoxide Concentration sensor."""
 
@@ -327,6 +283,7 @@ class CarbonMonoxideConcentration(Sensor):
     _unit = CONCENTRATION_PARTS_PER_MILLION
 
 
+@REGISTER_CLASS()
 class VOCLevel(Sensor):
     """VOC Level sensor."""
 
@@ -335,6 +292,7 @@ class VOCLevel(Sensor):
     _unit = CONCENTRATION_MICROGRAMS_PER_CUBIC_METER
 
 
+@REGISTER_CLASS()
 class PPBVOCLevel(Sensor):
     """VOC Level sensor."""
 
@@ -343,6 +301,7 @@ class PPBVOCLevel(Sensor):
     _unit = CONCENTRATION_PARTS_PER_BILLION
 
 
+@REGISTER_CLASS()
 class FormaldehydeConcentration(Sensor):
     """Formaldehyde Concentration sensor."""
 
@@ -350,14 +309,17 @@ class FormaldehydeConcentration(Sensor):
     _unit = CONCENTRATION_PARTS_PER_MILLION
 
 
+@REGISTER_CLASS()
 class ThermostatHVACAction(Sensor):
     """Thermostat HVAC action sensor."""
 
 
+@REGISTER_CLASS()
 class SinopeHVACAction(ThermostatHVACAction):
     """Sinope Thermostat HVAC action sensor."""
 
 
+@REGISTER_CLASS()
 class RSSISensor(Sensor):
     """RSSI sensor for a device."""
 
@@ -367,5 +329,6 @@ class RSSISensor(Sensor):
     _attr_entity_registry_enabled_default = False
 
 
+@REGISTER_CLASS()
 class LQISensor(RSSISensor):
     """LQI sensor for a device."""
