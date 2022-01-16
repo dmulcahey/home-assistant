@@ -29,10 +29,7 @@ async def async_setup_entry(
     for device in devices.values():
         for entity in device.device.entities.values():
             _LOGGER.info("processed entity: %s", entity)
-            if (
-                entity.platform == Platform.SWITCH.name
-                and entity.class_name == "Switch"
-            ):
+            if entity.platform == Platform.SWITCH and entity.class_name == "Switch":
                 _LOGGER.warning("adding entity: %s", entity)
                 entities.append(Switch(device, entity))
     async_add_entities(entities)

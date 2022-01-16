@@ -64,7 +64,7 @@ async def async_setup_entry(  # noqa: C901
     for device in devices.values():
         for entity in device.device.entities.values():
             _LOGGER.info("processed entity: %s", entity)
-            if entity.platform != Platform.SENSOR.name:
+            if entity.platform != Platform.SENSOR:
                 continue
             if entity.class_name == "AnalogInput":
                 _LOGGER.warning("adding entity: %s", entity)
