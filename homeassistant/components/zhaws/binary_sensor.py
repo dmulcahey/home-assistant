@@ -39,7 +39,7 @@ async def async_setup_entry(
     for device in devices.values():
         for entity in device.device.entities.values():
             _LOGGER.info("processed entity: %s", entity)
-            if entity.platform != Platform.BINARY_SENSOR.name:
+            if entity.platform != Platform.BINARY_SENSOR:
                 continue
             if entity.class_name == "Accelerometer":
                 _LOGGER.warning("adding entity: %s", entity)
