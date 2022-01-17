@@ -11,9 +11,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, entity_platform
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import ENTITY_CLASS_REGISTRY
-from .const import ZHAWS
+from . import ENTITY_CLASS_REGISTRY, add_entities
+from .const import SIGNAL_ADD_ENTITIES
 from .entity import ZhaEntity
 
 REGISTER_CLASS = functools.partial(ENTITY_CLASS_REGISTRY.register, Platform.LOCK)
@@ -34,21 +36,15 @@ SERVICE_CLEAR_LOCK_USER_CODE = "clear_lock_user_code"
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    async_add_entities: entity_platform.AddEntitiesCallback,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Flo sensors from config entry."""
-    entities: list[Lock] = []
-    devices = hass.data[ZHAWS][config_entry.entry_id].devices
-    for device in devices.values():
-        for entity in device.device.entities.values():
-            _LOGGER.debug("processed entity: %s", entity)
-            if entity.platform != Platform.LOCK:
-                continue
-            entity_class = ENTITY_CLASS_REGISTRY[Platform.LOCK][entity.class_name]
-            _LOGGER.warning(
-                "Creating entity: %s with class: %s", entity, entity_class.__name__
-            )
-            entities.append(entity_class(device, entity))
+    """Set up the zhaws sensors from config entry."""
+    unsub = async_dispatcher_connect(
+        hass,
+        SIGNAL_ADD_ENTITIES,
+        functools.partial(add_entities, async_add_entities, Platform.LOCK, _LOGGER),
+    )
+    config_entry.async_on_unload(unsub)
 
     platform = entity_platform.async_get_current_platform()
 
@@ -84,8 +80,6 @@ async def async_setup_entry(
         },
         "async_clear_lock_user_code",
     )
-
-    async_add_entities(entities)
 
 
 @REGISTER_CLASS()

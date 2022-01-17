@@ -1,6 +1,8 @@
 """The ZHAWS integration."""
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Callable, TypeVar
 
 from zhaws.client.controller import Controller
@@ -8,11 +10,14 @@ from zhaws.client.device import Device
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import CONNECTION_ZIGBEE
+from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import COORDINATOR_IEEE, DOMAIN
+from .const import COORDINATOR_IEEE, DOMAIN, SIGNAL_ADD_ENTITIES
+from .entity import ZhaEntity
 
 """
     Platform.CLIMATE,
@@ -35,6 +40,8 @@ PLATFORMS = [
 
 
 CALLABLE_T = TypeVar("CALLABLE_T", bound=Callable)  # pylint: disable=invalid-name
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class EntityClassRegistry(dict):
@@ -59,6 +66,30 @@ class EntityClassRegistry(dict):
 
 
 ENTITY_CLASS_REGISTRY = EntityClassRegistry()
+
+
+@callback
+async def add_entities(
+    async_add_entities: AddEntitiesCallback,
+    platform: Platform,
+    logger: logging.Logger,
+    devices: list[Device],
+) -> None:
+    """Set up the zhaws sensors from config entry."""
+    logger.warning("Adding entities for platform: %s", platform)
+    entities: list[ZhaEntity] = []
+    for device in devices:
+        for entity in device.device.entities.values():
+            logger.debug("processed entity: %s", entity)
+            if entity.platform != platform:
+                continue
+            entity_class = ENTITY_CLASS_REGISTRY[platform][entity.class_name]
+            logger.warning(
+                "Creating entity: %s with class: %s", entity, entity_class.__name__
+            )
+            entities.append(entity_class(device, entity))
+
+    async_add_entities(entities)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -89,7 +120,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 manufacturer="ZHAWS",
             )
 
-    hass.config_entries.async_setup_platforms(entry, PLATFORMS)
+    platform_tasks = []
+    for platform in PLATFORMS:
+        coro = hass.config_entries.async_forward_entry_setup(entry, platform)
+        platform_tasks.append(hass.async_create_task(coro))
+    results = await asyncio.gather(*platform_tasks, return_exceptions=True)
+    for res in results:
+        if isinstance(res, Exception):
+            _LOGGER.warning("Couldn't setup zhaws platform: %s", res)
+
+    async_dispatcher_send(hass, SIGNAL_ADD_ENTITIES, devices.values())
 
     await controller.clients.listen()
 
