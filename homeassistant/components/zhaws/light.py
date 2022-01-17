@@ -43,14 +43,15 @@ class Light(ZhaEntity, light.LightEntity):
 
     def __init__(self, *args, **kwargs):
         """Initialize the light."""
-        self._state = None
         super().__init__(*args, **kwargs)
-        self._brightness: int | None = None
-        self._off_brightness: int | None = None
-        self._hs_color: tuple[float, float] | None = None
-        self._color_temp: int | None = None
-        self._effect: str | None = None
-        self._state: bool | None = None
+        self._brightness: int | None = self._platform_entity.state.brightness
+        self._off_brightness: int | None = self._platform_entity.state.off_brightness
+        self._hs_color: tuple[
+            float, float
+        ] | None = self._platform_entity.state.hs_color
+        self._color_temp: int | None = self._platform_entity.state.color_temp
+        self._effect: str | None = self._platform_entity.state.effect
+        self._state: bool | None = self._platform_entity.state.on
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

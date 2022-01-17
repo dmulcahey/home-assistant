@@ -53,8 +53,8 @@ class ZHAAlarmControlPanel(ZhaEntity, AlarmControlPanelEntity):
 
     def __init__(self, *args, **kwargs):
         """Initialize the ZHA switch."""
-        self._state = None
         super().__init__(*args, **kwargs)
+        self._state = self._platform_entity.state
 
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
@@ -62,6 +62,11 @@ class ZHAAlarmControlPanel(ZhaEntity, AlarmControlPanelEntity):
         _LOGGER.warning("Handling platform entity state changed: %s", event)
         self._state = event.state
         self.async_write_ha_state()
+
+    @callback
+    def async_restore_last_state(self, last_state):
+        """Restore previous state."""
+        self._state = last_state.state
 
     @property
     def code_format(self):

@@ -54,6 +54,11 @@ async def async_setup_entry(
 class BinarySensor(ZhaEntity, BinarySensorEntity):
     """ZHA BinarySensor."""
 
+    def __init__(self, *args, **kwargs):
+        """Initialize the ZHA switch."""
+        super().__init__(*args, **kwargs)
+        self._state = self._platform_entity.state
+
     @callback
     def async_restore_last_state(self, last_state):
         """Restore previous state."""

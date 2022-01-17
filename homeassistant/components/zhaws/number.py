@@ -252,7 +252,7 @@ class ZhaNumber(ZhaEntity, NumberEntity):
     def __init__(self, *args, **kwargs):
         """Init this entity."""
         super().__init__(*args, **kwargs)
-        self._state = None
+        self._state = self._platform_entity.state
 
     @property
     def value(self):

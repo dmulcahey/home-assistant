@@ -65,18 +65,19 @@ class Sensor(ZhaEntity, SensorEntity):
 
     _unit: str | None = None
 
+    def __init__(self, *args, **kwargs):
+        """Initialize the ZHA switch."""
+        super().__init__(*args, **kwargs)
+        self._state = None
+        if type(self._platform_entity.state) in (int, float, bool, str):
+            self._state = self._platform_entity.state
+
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
         self._state = event.state
         self.async_write_ha_state()
-
-    @callback
-    def async_restore_last_state(self, last_state):
-        """Restore previous state."""
-        super().async_restore_last_state(last_state)
-        self._state = last_state.state
 
     @property
     def native_unit_of_measurement(self) -> str | None:
@@ -103,6 +104,16 @@ class Battery(Sensor):
     _unit = PERCENTAGE
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
+    def __init__(self, *args, **kwargs):
+        """Initialize the ZHA switch."""
+        super().__init__(*args, **kwargs)
+        self._state = self._platform_entity.state.state
+        self._extra_state_attributes = {
+            BATTERY_SIZE: self._platform_entity.state.battery_size,
+            "battery_quantity": self._platform_entity.state.battery_quantity,
+            BATTERY_VOLTAGE: self._platform_entity.state.battery_voltage,
+        }
+
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
@@ -111,8 +122,10 @@ class Battery(Sensor):
         self._extra_state_attributes = {}
         if BATTERY_SIZE in event.state:
             self._extra_state_attributes[BATTERY_SIZE] = event.state[BATTERY_SIZE]
-        if BATTERY_LEVEL in event.state:
-            self._extra_state_attributes[BATTERY_LEVEL] = event.state[BATTERY_LEVEL]
+        if "battery_quantity" in event.state:
+            self._extra_state_attributes["battery_quantity"] = event.state[
+                "battery_quantity"
+            ]
         if BATTERY_VOLTAGE in event.state:
             self._extra_state_attributes[BATTERY_VOLTAGE] = event.state[BATTERY_VOLTAGE]
         self.async_write_ha_state()
