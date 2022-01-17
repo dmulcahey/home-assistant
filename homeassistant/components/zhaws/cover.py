@@ -39,7 +39,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the zhaws sensors from config entry."""
+    """Set up the zhaws covers from config entry."""
     unsub = async_dispatcher_connect(
         hass,
         SIGNAL_ADD_ENTITIES,
@@ -48,12 +48,11 @@ async def async_setup_entry(
     config_entry.async_on_unload(unsub)
 
 
-@REGISTER_CLASS()
-class ZhaCover(ZhaEntity, CoverEntity):
+class BaseCover(ZhaEntity, CoverEntity):
     """Representation of a ZHA cover."""
 
     def __init__(self, *args, **kwargs):
-        """Init this sensor."""
+        """Init this cover."""
         super().__init__(*args, **kwargs)
         self._current_position = None
         self._state = None
@@ -146,7 +145,18 @@ class ZhaCover(ZhaEntity, CoverEntity):
 
 
 @REGISTER_CLASS()
-class Shade(ZhaCover):
+class ZhaCover(ZhaEntity, CoverEntity):
+    """Representation of a ZHA cover."""
+
+    def __init__(self, *args, **kwargs):
+        """Init this cover."""
+        super().__init__(*args, **kwargs)
+        self._current_position = self._platform_entity.state.current_position
+        self._state = self._platform_entity.state.state
+
+
+@REGISTER_CLASS()
+class Shade(BaseCover):
     """ZHA Shade."""
 
     _attr_device_class = CoverDeviceClass.SHADE
