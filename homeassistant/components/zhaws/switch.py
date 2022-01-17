@@ -11,10 +11,11 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON, Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import ENTITY_CLASS_REGISTRY
-from .const import ZHAWS
+from . import ENTITY_CLASS_REGISTRY, add_entities
+from .const import SIGNAL_ADD_ENTITIES
 from .entity import ZhaEntity
 
 REGISTER_CLASS = functools.partial(ENTITY_CLASS_REGISTRY.register, Platform.SWITCH)
@@ -27,21 +28,13 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Flo sensors from config entry."""
-    entities: list[Switch] = []
-    devices = hass.data[ZHAWS][config_entry.entry_id].devices
-    for device in devices.values():
-        for entity in device.device.entities.values():
-            _LOGGER.debug("processed entity: %s", entity)
-            if entity.platform != Platform.SWITCH:
-                continue
-            entity_class = ENTITY_CLASS_REGISTRY[Platform.SWITCH][entity.class_name]
-            _LOGGER.warning(
-                "Creating entity: %s with class: %s", entity, entity_class.__name__
-            )
-            entities.append(entity_class(device, entity))
-
-    async_add_entities(entities)
+    """Set up the zhaws sensors from config entry."""
+    unsub = async_dispatcher_connect(
+        hass,
+        SIGNAL_ADD_ENTITIES,
+        functools.partial(add_entities, async_add_entities, Platform.SWITCH, _LOGGER),
+    )
+    config_entry.async_on_unload(unsub)
 
 
 class BaseSwitch(SwitchEntity):
