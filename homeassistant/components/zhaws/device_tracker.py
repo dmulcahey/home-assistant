@@ -9,7 +9,7 @@ from zhaws.client.model.events import PlatformEntityEvent
 from homeassistant.components.device_tracker import SOURCE_TYPE_ROUTER
 from homeassistant.components.device_tracker.config_entry import ScannerEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_ON, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
@@ -50,7 +50,7 @@ class DeviceTracker(ScannerEntity, ZhaEntity):
     def __init__(self, *args, **kwargs):
         """Initialize the ZHA device tracker."""
         super().__init__(*args, **kwargs)
-        self._connected = False
+        self._connected = self._platform_entity.state.connected
         self._battery_level = None
 
     @property
@@ -70,11 +70,6 @@ class DeviceTracker(ScannerEntity, ZhaEntity):
         self._connected = event.state["connected"]
         self._battery_level = event.state["battery_level"]
         self.async_write_ha_state()
-
-    @callback
-    def async_restore_last_state(self, last_state) -> None:
-        """Restore previous state."""
-        self._connected = last_state.state == STATE_ON
 
     @property
     def battery_level(self):

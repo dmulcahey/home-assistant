@@ -12,7 +12,6 @@ from zhaws.client.model.types import BasePlatformEntity
 from homeassistant.core import callback
 from homeassistant.helpers import entity
 from homeassistant.helpers.device_registry import CONNECTION_ZIGBEE
-from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import COORDINATOR_IEEE, DOMAIN, ZHAWS
 
@@ -130,7 +129,7 @@ class BaseZhaEntity(LogMixin, entity.Entity):
         _LOGGER.log(level, msg, *args)
 
 
-class ZhaEntity(BaseZhaEntity, RestoreEntity):
+class ZhaEntity(BaseZhaEntity):
     """A base class for non group ZHA entities."""
 
     @property
@@ -146,17 +145,11 @@ class ZhaEntity(BaseZhaEntity, RestoreEntity):
         self._platform_entity.on(
             "platform_entity_state_changed", self.platform_entity_state_changed
         )
-        if last_state := await self.async_get_last_state():
-            self.async_restore_last_state(last_state)
 
     async def async_will_remove_from_hass(self) -> None:
         """Disconnect entity object when removed."""
         await super().async_will_remove_from_hass()
         self.remove_future.set_result(True)
-
-    @callback
-    def async_restore_last_state(self, last_state) -> None:
-        """Restore previous state."""
 
     async def async_update(self) -> None:
         """Retrieve latest state."""

@@ -63,11 +63,6 @@ class ZHAAlarmControlPanel(ZhaEntity, AlarmControlPanelEntity):
         self._state = event.state
         self.async_write_ha_state()
 
-    @callback
-    def async_restore_last_state(self, last_state):
-        """Restore previous state."""
-        self._state = last_state.state
-
     @property
     def code_format(self):
         """Regex for code format or None if no code is required."""
