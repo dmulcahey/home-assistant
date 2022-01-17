@@ -9,7 +9,7 @@ from zhaws.client.model.events import PlatformEntityEvent
 
 from homeassistant.components import light
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_ON, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -105,21 +105,6 @@ class Light(ZhaEntity, light.LightEntity):
     def supported_features(self):
         """Flag supported features."""
         return self._platform_entity.supported_features
-
-    @callback
-    def async_restore_last_state(self, last_state):
-        """Restore previous state."""
-        self._state = last_state.state == STATE_ON
-        if "brightness" in last_state.attributes:
-            self._brightness = last_state.attributes["brightness"]
-        if "off_brightness" in last_state.attributes:
-            self._off_brightness = last_state.attributes["off_brightness"]
-        if "color_temp" in last_state.attributes:
-            self._color_temp = last_state.attributes["color_temp"]
-        if "hs_color" in last_state.attributes:
-            self._hs_color = last_state.attributes["hs_color"]
-        if "effect" in last_state.attributes:
-            self._effect = last_state.attributes["effect"]
 
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:

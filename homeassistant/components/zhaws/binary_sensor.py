@@ -9,7 +9,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_ON, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -58,12 +58,6 @@ class BinarySensor(ZhaEntity, BinarySensorEntity):
         """Initialize the ZHA switch."""
         super().__init__(*args, **kwargs)
         self._state = self._platform_entity.state
-
-    @callback
-    def async_restore_last_state(self, last_state):
-        """Restore previous state."""
-        super().async_restore_last_state(last_state)
-        self._state = last_state.state == STATE_ON
 
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:

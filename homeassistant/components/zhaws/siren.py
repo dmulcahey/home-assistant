@@ -22,7 +22,7 @@ from homeassistant.components.siren.const import (
     SUPPORT_VOLUME_SET,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_ON, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -78,7 +78,7 @@ class Siren(ZhaEntity, SirenEntity):
             WARNING_DEVICE_MODE_EMERGENCY_PANIC: "Emergency Panic",
         }
         super().__init__(*args, **kwargs)
-        self._attr_is_on: bool = False
+        self._attr_is_on: bool = self._platform_entity.state
 
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
@@ -86,11 +86,6 @@ class Siren(ZhaEntity, SirenEntity):
         _LOGGER.warning("Handling platform entity state changed: %s", event)
         self._attr_is_on = bool(event.state)
         self.async_write_ha_state()
-
-    @callback
-    def async_restore_last_state(self, last_state) -> None:
-        """Restore previous state."""
-        self._attr_is_on = last_state.state == STATE_ON
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on siren."""

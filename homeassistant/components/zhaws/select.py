@@ -10,8 +10,8 @@ from zhaws.client.model.types import BasePlatformEntity
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ENTITY_CATEGORY_CONFIG, STATE_UNKNOWN, Platform
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import ENTITY_CATEGORY_CONFIG, Platform
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -78,9 +78,3 @@ class EnumSelectEntity(ZhaEntity, SelectEntity):
             return
         self._current_option = option
         self.async_write_ha_state()
-
-    @callback
-    def async_restore_last_state(self, last_state) -> None:
-        """Restore previous state."""
-        if last_state.state and last_state.state != STATE_UNKNOWN:
-            self._current_option = last_state.state

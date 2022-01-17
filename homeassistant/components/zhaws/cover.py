@@ -7,12 +7,7 @@ import logging
 from zhaws.client.model.commands import CommandResponse
 from zhaws.client.model.events import PlatformEntityEvent
 
-from homeassistant.components.cover import (
-    ATTR_CURRENT_POSITION,
-    ATTR_POSITION,
-    CoverDeviceClass,
-    CoverEntity,
-)
+from homeassistant.components.cover import ATTR_POSITION, CoverDeviceClass, CoverEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     STATE_CLOSED,
@@ -56,13 +51,6 @@ class BaseCover(ZhaEntity, CoverEntity):
         super().__init__(*args, **kwargs)
         self._current_position = None
         self._state = None
-
-    @callback
-    def async_restore_last_state(self, last_state):
-        """Restore previous state."""
-        self._state = last_state.state
-        if ATTR_CURRENT_POSITION in last_state.attributes:
-            self._current_position = last_state.attributes[ATTR_CURRENT_POSITION]
 
     @property
     def is_closed(self):
@@ -160,6 +148,14 @@ class Shade(BaseCover):
     """ZHA Shade."""
 
     _attr_device_class = CoverDeviceClass.SHADE
+
+    def __init__(self, *args, **kwargs):
+        """Init this cover."""
+        super().__init__(*args, **kwargs)
+        self._current_position = self._platform_entity.state.current_position
+        self._state = (
+            STATE_CLOSED if self._platform_entity.state.is_closed else STATE_OPEN
+        )
 
 
 @REGISTER_CLASS()

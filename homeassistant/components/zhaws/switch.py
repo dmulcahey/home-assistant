@@ -9,7 +9,7 @@ from zhaws.client.model.events import PlatformEntityEvent
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_ON, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -42,8 +42,8 @@ class BaseSwitch(SwitchEntity):
 
     def __init__(self, *args, **kwargs):
         """Initialize the ZHA switch."""
-        self._state = None
         super().__init__(*args, **kwargs)
+        self._state = self._platform_entity.state
 
     @property
     def is_on(self) -> bool:
@@ -63,11 +63,6 @@ class Switch(BaseSwitch, ZhaEntity):
         _LOGGER.warning("Handling platform entity state changed: %s", event)
         self._state = bool(event.state["state"])
         self.async_write_ha_state()
-
-    @callback
-    def async_restore_last_state(self, last_state) -> None:
-        """Restore previous state."""
-        self._state = last_state.state == STATE_ON
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the entity on."""

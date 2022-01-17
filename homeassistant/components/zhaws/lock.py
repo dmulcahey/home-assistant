@@ -88,8 +88,10 @@ class Lock(ZhaEntity, LockEntity):
 
     def __init__(self, *args, **kwargs):
         """Initialize the ZHA switch."""
-        self._state = None
         super().__init__(*args, **kwargs)
+        self._state = (
+            STATE_LOCKED if self._platform_entity.state.is_locked else STATE_UNLOCKED
+        )
 
     @property
     def is_locked(self) -> bool:
@@ -97,11 +99,6 @@ class Lock(ZhaEntity, LockEntity):
         if self._state is None:
             return False
         return self._state == STATE_LOCKED
-
-    @callback
-    def async_restore_last_state(self, last_state):
-        """Restore previous state."""
-        self._state = VALUE_TO_STATE.get(last_state.state, last_state.state)
 
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
