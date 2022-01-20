@@ -96,16 +96,18 @@ class BaseZhaEntity(LogMixin, entity.Entity):
         return self._should_poll
 
     @property
-    def device_info(self) -> entity.DeviceInfo:
+    def device_info(self) -> entity.DeviceInfo | None:
         """Return a device description for device registry."""
-        return entity.DeviceInfo(
-            connections={(CONNECTION_ZIGBEE, self.device.device.ieee)},
-            identifiers={(DOMAIN, self.device.device.ieee)},
-            manufacturer=self.device.device.manufacturer,
-            model=self.device.device.model,
-            name=self.device.device.name,
-            via_device=(DOMAIN, self.hass.data[ZHAWS][COORDINATOR_IEEE]),
-        )
+        if hasattr(self._device, "ieee"):
+            return entity.DeviceInfo(
+                connections={(CONNECTION_ZIGBEE, self.device.device.ieee)},
+                identifiers={(DOMAIN, self.device.device.ieee)},
+                manufacturer=self.device.device.manufacturer,
+                model=self.device.device.model,
+                name=self.device.device.name,
+                via_device=(DOMAIN, self.hass.data[ZHAWS][COORDINATOR_IEEE]),
+            )
+        return None
 
     @callback
     def async_state_changed(self) -> None:
@@ -142,7 +144,7 @@ class ZhaEntity(BaseZhaEntity):
     async def async_added_to_hass(self) -> None:
         """Run when about to be added to hass."""
         self.remove_future = asyncio.Future()
-        self._platform_entity.on(
+        self._platform_entity.on_event(
             "platform_entity_state_changed", self.platform_entity_state_changed
         )
 

@@ -7,6 +7,7 @@ from typing import Callable, TypeVar
 
 from zhaws.client.controller import Controller
 from zhaws.client.device import Device
+from zhaws.client.group import Group
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -73,21 +74,34 @@ async def add_entities(
     async_add_entities: AddEntitiesCallback,
     platform: Platform,
     logger: logging.Logger,
-    devices: list[Device],
+    devices: list[Device] | None,
+    groups: list[Group] | None,
 ) -> None:
     """Set up the zhaws sensors from config entry."""
     logger.warning("Adding entities for platform: %s", platform)
     entities: list[ZhaEntity] = []
-    for device in devices:
-        for entity in device.device.entities.values():
-            logger.debug("processed entity: %s", entity)
-            if entity.platform != platform:
-                continue
-            entity_class = ENTITY_CLASS_REGISTRY[platform][entity.class_name]
-            logger.warning(
-                "Creating entity: %s with class: %s", entity, entity_class.__name__
-            )
-            entities.append(entity_class(device, entity))
+    if devices:
+        for device in devices:
+            for entity in device.device.entities.values():
+                logger.debug("processed entity: %s", entity)
+                if entity.platform != platform:
+                    continue
+                entity_class = ENTITY_CLASS_REGISTRY[platform][entity.class_name]
+                logger.warning(
+                    "Creating entity: %s with class: %s", entity, entity_class.__name__
+                )
+                entities.append(entity_class(device, entity))
+    if groups:
+        for group in groups:
+            for entity in group.group.entities.values():
+                logger.debug("processed entity: %s", entity)
+                if entity.platform != platform:
+                    continue
+                entity_class = ENTITY_CLASS_REGISTRY[platform][entity.class_name]
+                logger.warning(
+                    "Creating entity: %s with class: %s", entity, entity_class.__name__
+                )
+                entities.append(entity_class(group, entity))
 
     async_add_entities(entities)
 
@@ -105,8 +119,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await controller.connect()
     await controller.load_devices()
+    await controller.load_groups()
 
     devices: dict[str, Device] = controller.devices
+    groups: dict[int, Group] = controller.groups
 
     for ieee, device in devices.items():
         if device.device.nwk == "0x0000":
@@ -129,7 +145,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if isinstance(res, Exception):
             _LOGGER.warning("Couldn't setup zhaws platform: %s", res)
 
-    async_dispatcher_send(hass, SIGNAL_ADD_ENTITIES, devices.values())
+    async_dispatcher_send(hass, SIGNAL_ADD_ENTITIES, devices.values(), groups.values())
 
     await controller.clients.listen()
 
