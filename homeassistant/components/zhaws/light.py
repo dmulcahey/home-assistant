@@ -37,7 +37,7 @@ async def async_setup_entry(
     config_entry.async_on_unload(unsub)
 
 
-@REGISTER_CLASS(alternate_class_names=["HueLight", "ForceOnLight"])
+@REGISTER_CLASS(alternate_class_names=["HueLight", "ForceOnLight", "LightGroup"])
 class Light(ZhaEntity, light.LightEntity):
     """Operations common to all light entities."""
 
