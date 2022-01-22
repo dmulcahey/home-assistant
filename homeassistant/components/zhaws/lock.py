@@ -3,7 +3,6 @@ import functools
 import logging
 
 import voluptuous as vol
-from zhaws.client.model.commands import CommandResponse
 from zhaws.client.model.events import PlatformEntityEvent
 
 from homeassistant.components.lock import STATE_LOCKED, STATE_UNLOCKED, LockEntity
@@ -109,23 +108,11 @@ class Lock(ZhaEntity, LockEntity):
 
     async def async_lock(self, **kwargs):
         """Lock the lock."""
-        result: CommandResponse = await self._device.controller.locks.lock(
-            self._platform_entity
-        )
-        if not result.success:
-            return
-        self._state = STATE_LOCKED
-        self.async_write_ha_state()
+        await self._device.controller.locks.lock(self._platform_entity)
 
     async def async_unlock(self, **kwargs):
         """Unlock the lock."""
-        result: CommandResponse = await self._device.controller.locks.unlock(
-            self._platform_entity
-        )
-        if not result.success:
-            return
-        self._state = STATE_UNLOCKED
-        self.async_write_ha_state()
+        await self._device.controller.locks.unlock(self._platform_entity)
 
     async def async_set_lock_user_code(self, code_slot: int, user_code: str) -> None:
         """Set the user_code to index X on the lock."""

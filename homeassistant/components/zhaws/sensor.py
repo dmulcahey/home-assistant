@@ -25,6 +25,11 @@ from homeassistant.const import (
     POWER_WATT,
     PRESSURE_HPA,
     TEMP_CELSIUS,
+    TIME_HOURS,
+    TIME_SECONDS,
+    VOLUME_FLOW_RATE_CUBIC_FEET_PER_MINUTE,
+    VOLUME_FLOW_RATE_CUBIC_METERS_PER_HOUR,
+    VOLUME_GALLONS,
     Platform,
 )
 from homeassistant.core import HomeAssistant, callback
@@ -242,10 +247,27 @@ class SmartEnergyMetering(Sensor):
     _attr_device_class: SensorDeviceClass = SensorDeviceClass.POWER
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
 
+    unit_of_measure_map = {
+        0x00: POWER_WATT,
+        0x01: VOLUME_FLOW_RATE_CUBIC_METERS_PER_HOUR,
+        0x02: VOLUME_FLOW_RATE_CUBIC_FEET_PER_MINUTE,
+        0x03: f"100 {VOLUME_FLOW_RATE_CUBIC_METERS_PER_HOUR}",
+        0x04: f"US {VOLUME_GALLONS}/{TIME_HOURS}",
+        0x05: f"IMP {VOLUME_GALLONS}/{TIME_HOURS}",
+        0x06: f"BTU/{TIME_HOURS}",
+        0x07: f"l/{TIME_HOURS}",
+        0x08: "kPa",  # gauge
+        0x09: "kPa",  # absolute
+        0x0A: f"1000 {VOLUME_GALLONS}/{TIME_HOURS}",
+        0x0B: "unitless",
+        0x0C: f"MJ/{TIME_SECONDS}",
+    }
+
     def __init__(self, *args, **kwargs):
         """Initialize the ZHA switch."""
         super().__init__(*args, **kwargs)
         self._state = self._platform_entity.state.state
+        self._unit = self.unit_of_measure_map.get(self._platform_entity.unit)
 
         if hasattr(self._platform_entity.state, "device_type"):
             self._extra_state_attributes = {

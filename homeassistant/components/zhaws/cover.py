@@ -4,7 +4,6 @@ from __future__ import annotations
 import functools
 import logging
 
-from zhaws.client.model.commands import CommandResponse
 from zhaws.client.model.events import PlatformEntityEvent
 
 from homeassistant.components.cover import ATTR_POSITION, CoverDeviceClass, CoverEntity
@@ -88,48 +87,28 @@ class BaseCover(ZhaEntity, CoverEntity):
 
     async def async_open_cover(self, **kwargs):
         """Open the window cover."""
-        result: CommandResponse = await self._device.controller.covers.open_cover(
+        await self._device.controller.covers.open_cover(
             self._platform_entity,
         )
-        if not result.success:
-            return
-        self._state = STATE_OPENING
-        self.async_write_ha_state()
 
     async def async_close_cover(self, **kwargs):
         """Close the window cover."""
-        result: CommandResponse = await self._device.controller.covers.close_cover(
+        await self._device.controller.covers.close_cover(
             self._platform_entity,
         )
-        if not result.success:
-            return
-        self._state = STATE_CLOSING
-        self.async_write_ha_state()
 
     async def async_set_cover_position(self, **kwargs):
         """Move the roller shutter to a specific position."""
         new_pos = kwargs[ATTR_POSITION]
-        result: CommandResponse = (
-            await self._device.controller.covers.set_cover_position(
-                self._platform_entity, new_pos
-            )
+        await self._device.controller.covers.set_cover_position(
+            self._platform_entity, new_pos
         )
-        if not result.success:
-            return
-        self._state = (
-            STATE_CLOSING if new_pos < self._current_position else STATE_OPENING
-        )
-        self.async_write_ha_state()
 
     async def async_stop_cover(self, **kwargs):
         """Stop the window cover."""
-        result: CommandResponse = await self._device.controller.covers.stop_cover(
+        await self._device.controller.covers.stop_cover(
             self._platform_entity,
         )
-        if not result.success:
-            return
-        self._state = STATE_OPEN if self._current_position > 0 else STATE_CLOSED
-        self.async_write_ha_state()
 
 
 @REGISTER_CLASS()
