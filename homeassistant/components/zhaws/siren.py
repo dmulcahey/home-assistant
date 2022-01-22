@@ -5,7 +5,6 @@ import functools
 import logging
 from typing import Any
 
-from zhaws.client.model.commands import CommandResponse
 from zhaws.client.model.events import PlatformEntityEvent
 
 from homeassistant.components.siren import (
@@ -89,23 +88,13 @@ class Siren(ZhaEntity, SirenEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on siren."""
-        result: CommandResponse = await self._device.controller.sirens.turn_on(
+        await self._device.controller.sirens.turn_on(
             self._platform_entity,
             tone=kwargs.get(ATTR_TONE),
             duration=kwargs.get(ATTR_DURATION),
             volume_level=kwargs.get(ATTR_VOLUME_LEVEL),
         )
-        if not result.success:
-            return
-        self._attr_is_on = True
-        self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off siren."""
-        result: CommandResponse = await self._device.controller.sirens.turn_off(
-            self._platform_entity
-        )
-        if not result.success:
-            return
-        self._attr_is_on = False
-        self.async_write_ha_state()
+        await self._device.controller.sirens.turn_off(self._platform_entity)

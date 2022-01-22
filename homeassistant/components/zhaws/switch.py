@@ -4,7 +4,6 @@ from __future__ import annotations
 import functools
 import logging
 
-from zhaws.client.model.commands import CommandResponse
 from zhaws.client.model.events import PlatformEntityEvent
 
 from homeassistant.components.switch import SwitchEntity
@@ -37,13 +36,14 @@ async def async_setup_entry(
     config_entry.async_on_unload(unsub)
 
 
-class BaseSwitch(SwitchEntity):
-    """Common base class for zha switches."""
+@REGISTER_CLASS(alternate_class_names=["SwitchGroup"])
+class Switch(SwitchEntity, ZhaEntity):
+    """ZHA switch."""
 
     def __init__(self, *args, **kwargs):
         """Initialize the ZHA switch."""
         super().__init__(*args, **kwargs)
-        self._state = self._platform_entity.state
+        self._state = self._platform_entity.state.state
 
     @property
     def is_on(self) -> bool:
@@ -51,11 +51,6 @@ class BaseSwitch(SwitchEntity):
         if self._state is None:
             return False
         return self._state
-
-
-@REGISTER_CLASS(alternate_class_names=["SwitchGroup"])
-class Switch(BaseSwitch, ZhaEntity):
-    """ZHA switch."""
 
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
@@ -66,20 +61,8 @@ class Switch(BaseSwitch, ZhaEntity):
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the entity on."""
-        result: CommandResponse = await self._device.controller.switches.turn_on(
-            self._platform_entity
-        )
-        if not result.success:
-            return
-        self._state = True
-        self.async_write_ha_state()
+        await self._device.controller.switches.turn_on(self._platform_entity)
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the entity off."""
-        result: CommandResponse = await self._device.controller.switches.turn_off(
-            self._platform_entity
-        )
-        if not result.success:
-            return
-        self._state = False
-        self.async_write_ha_state()
+        await self._device.controller.switches.turn_off(self._platform_entity)
