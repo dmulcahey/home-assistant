@@ -71,6 +71,8 @@ class Sensor(ZhaEntity, SensorEntity):
         self._state = None
         if type(self._platform_entity.state) in (int, float, bool, str):
             self._state = self._platform_entity.state
+        if hasattr(self._platform_entity, "attribute"):
+            self._sensor_attribute = self._platform_entity.attribute
 
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
@@ -139,20 +141,38 @@ class ElectricalMeasurement(Sensor):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _unit = POWER_WATT
 
-    """
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        #Return device state attrs for sensor.
-        attrs = {}
-        if self._channel.measurement_type is not None:
-            attrs["measurement_type"] = self._channel.measurement_type
+    def __init__(self, *args, **kwargs):
+        """Initialize the ZHA switch."""
+        super().__init__(*args, **kwargs)
+        self._state = self._platform_entity.state.state
+        self._max_attr_name = f"{self._sensor_attribute}_max"
 
-        max_attr_name = f"{self.SENSOR_ATTR}_max"
-        if (max_v := self._channel.cluster.get(max_attr_name)) is not None:
-            attrs[max_attr_name] = str(self.formatter(max_v))
+        if hasattr(self._platform_entity.state, "measurement_type"):
+            measurement_type = self._platform_entity.state.measurement_type
+            if measurement_type is not None:
+                measurement_type = measurement_type.title().replace("_", " ")
+            self._extra_state_attributes = {"measurement_type": measurement_type}
+            if hasattr(self._platform_entity.state, self._max_attr_name):
+                self._extra_state_attributes[self._max_attr_name] = getattr(
+                    self._platform_entity.state, self._max_attr_name
+                )
 
-        return attrs
-    """
+    @callback
+    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+        """Set the entity state."""
+        _LOGGER.warning("Handling platform entity state changed: %s", event)
+        self._state = event.state["state"]
+        self._extra_state_attributes = {}
+        if hasattr(self._platform_entity.state, "measurement_type"):
+            measurement_type = self._platform_entity.state.measurement_type
+            if measurement_type is not None:
+                measurement_type = measurement_type.title().replace("_", " ")
+            self._extra_state_attributes = {"measurement_type": measurement_type}
+            if hasattr(self._platform_entity.state, self._max_attr_name):
+                self._extra_state_attributes[self._max_attr_name] = getattr(
+                    self._platform_entity.state, self._max_attr_name
+                )
+        self.async_write_ha_state()
 
 
 @REGISTER_CLASS()
@@ -222,17 +242,37 @@ class SmartEnergyMetering(Sensor):
     _attr_device_class: SensorDeviceClass = SensorDeviceClass.POWER
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
 
-    """
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        #Return device state attrs for battery sensors.
-        attrs = {}
-        if self._channel.device_type is not None:
-            attrs["device_type"] = self._channel.device_type
-        if (status := self._channel.status) is not None:
-            attrs["status"] = str(status)[len(status.__class__.__name__) + 1 :]
-        return attrs
-    """
+    def __init__(self, *args, **kwargs):
+        """Initialize the ZHA switch."""
+        super().__init__(*args, **kwargs)
+        self._state = self._platform_entity.state.state
+
+        if hasattr(self._platform_entity.state, "device_type"):
+            self._extra_state_attributes = {
+                "device_type": self._platform_entity.state.device_type,
+            }
+            if hasattr(self._platform_entity.state, "status"):
+                status = self._platform_entity.state.status
+                if status is not None:
+                    status = status.title().replace("_", " ")
+                self._extra_state_attributes["status"] = status
+
+    @callback
+    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+        """Set the entity state."""
+        _LOGGER.warning("Handling platform entity state changed: %s", event)
+        self._state = event.state["state"]
+        self._extra_state_attributes = {}
+        if hasattr(self._platform_entity.state, "device_type"):
+            self._extra_state_attributes = {
+                "device_type": self._platform_entity.state.device_type,
+            }
+            if hasattr(self._platform_entity.state, "status"):
+                status = self._platform_entity.state.status
+                if status is not None:
+                    status = status.title().replace("_", " ")
+                self._extra_state_attributes["status"] = status
+        self.async_write_ha_state()
 
 
 @REGISTER_CLASS()
