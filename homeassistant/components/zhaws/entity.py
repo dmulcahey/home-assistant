@@ -98,7 +98,7 @@ class BaseZhaEntity(LogMixin, entity.Entity):
     @property
     def device_info(self) -> entity.DeviceInfo | None:
         """Return a device description for device registry."""
-        if hasattr(self._device, "ieee"):
+        if hasattr(self._device, "device"):
             return entity.DeviceInfo(
                 connections={(CONNECTION_ZIGBEE, self.device.device.ieee)},
                 identifiers={(DOMAIN, self.device.device.ieee)},
