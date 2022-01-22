@@ -53,7 +53,7 @@ class BaseSwitch(SwitchEntity):
         return self._state
 
 
-@REGISTER_CLASS()
+@REGISTER_CLASS(alternate_class_names=["SwitchGroup"])
 class Switch(BaseSwitch, ZhaEntity):
     """ZHA switch."""
 
@@ -83,28 +83,3 @@ class Switch(BaseSwitch, ZhaEntity):
             return
         self._state = False
         self.async_write_ha_state()
-
-
-"""
-@GROUP_MATCH()
-class SwitchGroup(BaseSwitch, ZhaGroupEntity):
-    #Representation of a switch group.
-
-    def __init__(
-        self, entity_ids: list[str], unique_id: str, group_id: int, zha_device, **kwargs
-    ) -> None:
-        #Initialize a switch group.
-        super().__init__(entity_ids, unique_id, group_id, zha_device, **kwargs)
-        self._available: bool = False
-        group = self.zha_device.gateway.get_group(self._group_id)
-        self._on_off_channel = group.endpoint[OnOff.cluster_id]
-
-    async def async_update(self) -> None:
-        #Query all members and determine the light group state.
-        all_states = [self.hass.states.get(x) for x in self._entity_ids]
-        states: list[State] = list(filter(None, all_states))
-        on_states = [state for state in states if state.state == STATE_ON]
-
-        self._state = len(on_states) > 0
-        self._available = any(state.state != STATE_UNAVAILABLE for state in states)
-"""
