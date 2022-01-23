@@ -103,7 +103,7 @@ class Lock(ZhaEntity, LockEntity):
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
-        self._state = STATE_LOCKED if event.state["is_locked"] else STATE_UNLOCKED
+        self._state = STATE_LOCKED if event.state.is_locked else STATE_UNLOCKED
         self.async_write_ha_state()
 
     async def async_lock(self, **kwargs):

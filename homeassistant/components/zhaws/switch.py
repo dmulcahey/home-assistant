@@ -56,7 +56,7 @@ class Switch(SwitchEntity, ZhaEntity):
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
-        self._state = bool(event.state["state"])
+        self._state = bool(event.state.state)
         self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:

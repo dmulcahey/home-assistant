@@ -125,16 +125,16 @@ class Battery(Sensor):
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
-        self._state = event.state["state"]
+        self._state = event.state.state
         self._extra_state_attributes = {}
         if BATTERY_SIZE in event.state:
-            self._extra_state_attributes[BATTERY_SIZE] = event.state[BATTERY_SIZE]
+            self._extra_state_attributes[BATTERY_SIZE] = event.state.battery_size
         if "battery_quantity" in event.state:
-            self._extra_state_attributes["battery_quantity"] = event.state[
+            self._extra_state_attributes[
                 "battery_quantity"
-            ]
+            ] = event.state.battery_quantity
         if BATTERY_VOLTAGE in event.state:
-            self._extra_state_attributes[BATTERY_VOLTAGE] = event.state[BATTERY_VOLTAGE]
+            self._extra_state_attributes[BATTERY_VOLTAGE] = event.state.battery_voltage
         self.async_write_ha_state()
 
 
@@ -166,17 +166,11 @@ class ElectricalMeasurement(Sensor):
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
-        self._state = event.state["state"]
-        self._extra_state_attributes = {}
-        if hasattr(self._platform_entity.state, "measurement_type"):
-            measurement_type = self._platform_entity.state.measurement_type
-            if measurement_type is not None:
-                measurement_type = measurement_type.title().replace("_", " ")
-            self._extra_state_attributes = {"measurement_type": measurement_type}
-            if hasattr(self._platform_entity.state, self._max_attr_name):
-                self._extra_state_attributes[self._max_attr_name] = getattr(
-                    self._platform_entity.state, self._max_attr_name
-                )
+        self._state = event.state.state
+        self._extra_state_attributes = {
+            "measurement_type": event.state.measurement_type.title().replace("_", " "),
+            self._max_attr_name: getattr(event.state, self._max_attr_name),
+        }
         self.async_write_ha_state()
 
 
@@ -283,17 +277,11 @@ class SmartEnergyMetering(Sensor):
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
-        self._state = event.state["state"]
-        self._extra_state_attributes = {}
-        if hasattr(self._platform_entity.state, "device_type"):
-            self._extra_state_attributes = {
-                "device_type": self._platform_entity.state.device_type,
-            }
-            if hasattr(self._platform_entity.state, "status"):
-                status = self._platform_entity.state.status
-                if status is not None:
-                    status = status.title().replace("_", " ")
-                self._extra_state_attributes["status"] = status
+        self._state = event.state.state
+        self._extra_state_attributes = {
+            "device_type": event.state.device_type,
+            "status": event.state.status,
+        }
         self.async_write_ha_state()
 
 

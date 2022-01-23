@@ -110,12 +110,12 @@ class Light(ZhaEntity, light.LightEntity):
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
-        self._state = event.state["on"]
-        self._brightness = event.state["brightness"]
-        self._hs_color = event.state["hs_color"]
-        self._color_temp = event.state["color_temp"]
-        self._effect = event.state["effect"]
-        self._off_brightness = event.state["off_brightness"]
+        self._state = event.state.on
+        self._brightness = event.state.brightness
+        self._hs_color = event.state.hs_color
+        self._color_temp = event.state.color_temp
+        self._effect = event.state.effect
+        self._off_brightness = event.state.off_brightness
         self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs):

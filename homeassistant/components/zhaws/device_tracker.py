@@ -67,8 +67,8 @@ class DeviceTracker(ScannerEntity, ZhaEntity):
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
-        self._connected = event.state["connected"]
-        self._battery_level = event.state["battery_level"]
+        self._connected = event.state.connected
+        self._battery_level = event.state.battery_level
         self.async_write_ha_state()
 
     @property
@@ -82,7 +82,7 @@ class DeviceTracker(ScannerEntity, ZhaEntity):
     @property  # type: ignore
     def device_info(  # pylint: disable=overridden-final-method
         self,
-    ) -> DeviceInfo:
+    ) -> DeviceInfo | None:
         """Return device info."""
         # We opt ZHA device tracker back into overriding this method because
         # it doesn't track IP-based devices.
