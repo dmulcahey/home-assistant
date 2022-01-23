@@ -77,13 +77,13 @@ class Siren(ZhaEntity, SirenEntity):
             WARNING_DEVICE_MODE_EMERGENCY_PANIC: "Emergency Panic",
         }
         super().__init__(*args, **kwargs)
-        self._attr_is_on: bool = self._platform_entity.state
+        self._attr_is_on: bool = self._platform_entity.state.state
 
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
-        self._attr_is_on = bool(event.state)
+        self._attr_is_on = bool(event.state.state)
         self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs: Any) -> None:

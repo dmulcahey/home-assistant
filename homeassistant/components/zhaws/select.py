@@ -56,7 +56,7 @@ class EnumSelectEntity(ZhaEntity, SelectEntity):
         self._attr_name = platform_entity.enum
         self._attr_options = platform_entity.options
         super().__init__(device, platform_entity, **kwargs)
-        self._current_option: str | int | None = self._platform_entity.state
+        self._current_option: str | int | None = self._platform_entity.state.state
 
     @property
     def available(self) -> bool:

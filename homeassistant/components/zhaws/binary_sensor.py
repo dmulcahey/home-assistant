@@ -57,7 +57,7 @@ class BinarySensor(ZhaEntity, BinarySensorEntity):
     def __init__(self, *args, **kwargs):
         """Initialize the ZHA switch."""
         super().__init__(*args, **kwargs)
-        self._state = self._platform_entity.state
+        self._state = self._platform_entity.state.state
 
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
@@ -67,7 +67,7 @@ class BinarySensor(ZhaEntity, BinarySensorEntity):
             f"{self.unique_id}-{self.entity_id}",
             event,
         )
-        self._state = bool(event.state)
+        self._state = bool(event.state.state)
         self.async_write_ha_state()
 
     @property
