@@ -81,8 +81,8 @@ class BaseCover(ZhaEntity, CoverEntity):
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
         _LOGGER.debug("setting position: %s", event.state)
-        self._current_position = event.state["current_position"]
-        self._state = STATE_CLOSED if event.state["is_closed"] else STATE_OPEN
+        self._current_position = event.state.current_position
+        self._state = STATE_CLOSED if event.state.is_closed else STATE_OPEN
         self.async_write_ha_state()
 
     async def async_open_cover(self, **kwargs):
