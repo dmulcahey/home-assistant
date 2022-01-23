@@ -252,7 +252,7 @@ class ZhaNumber(ZhaEntity, NumberEntity):
     def __init__(self, *args, **kwargs):
         """Init this entity."""
         super().__init__(*args, **kwargs)
-        self._state = self._platform_entity.state
+        self._state = self._platform_entity.state.state
 
     @property
     def value(self):
@@ -309,7 +309,7 @@ class ZhaNumber(ZhaEntity, NumberEntity):
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
-        self._state = event.state
+        self._state = event.state.state
         self.async_write_ha_state()
 
     async def async_set_value(self, value):

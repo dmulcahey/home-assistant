@@ -74,8 +74,8 @@ class Sensor(ZhaEntity, SensorEntity):
         """Initialize the ZHA switch."""
         super().__init__(*args, **kwargs)
         self._state = None
-        if type(self._platform_entity.state) in (int, float, bool, str):
-            self._state = self._platform_entity.state
+        if type(self._platform_entity.state.state) in (int, float, bool, str, None):
+            self._state = self._platform_entity.state.state
         if hasattr(self._platform_entity, "attribute"):
             self._sensor_attribute = self._platform_entity.attribute
 
@@ -83,7 +83,7 @@ class Sensor(ZhaEntity, SensorEntity):
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
         _LOGGER.warning("Handling platform entity state changed: %s", event)
-        self._state = event.state
+        self._state = event.state.state
         self.async_write_ha_state()
 
     @property
