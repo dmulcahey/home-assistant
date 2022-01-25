@@ -1,6 +1,7 @@
 """Sensors on Zigbee Home Automation networks."""
 from __future__ import annotations
 
+from datetime import datetime
 import functools
 import logging
 
@@ -92,7 +93,7 @@ class Sensor(ZhaEntity, SensorEntity):
         return self._unit
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> StateType | datetime:
         """Return the state of the entity."""
         return self._state
 
@@ -378,3 +379,17 @@ class RSSISensor(Sensor):
 @REGISTER_CLASS()
 class LQISensor(RSSISensor):
     """LQI sensor for a device."""
+
+
+@REGISTER_CLASS()
+class LastSeenSensor(Sensor):
+    """Last seen sensor for a device."""
+
+    _device_class: SensorDeviceClass = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = ENTITY_CATEGORY_DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    @property
+    def native_value(self) -> datetime:
+        """Return the state of the entity."""
+        return datetime.utcfromtimestamp(float(self._state))
