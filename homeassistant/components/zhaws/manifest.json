@@ -3,13 +3,11 @@
   "name": "ZHAWS",
   "config_flow": true,
   "documentation": "https://www.home-assistant.io/integrations/zhaws",
-  "requirements": [],
+  "requirements": ["zhaws==2022.01.27"],
   "ssdp": [],
   "zeroconf": [],
   "homekit": {},
   "dependencies": [],
-  "codeowners": [
-    "@dmulcahey"
-  ],
+  "codeowners": ["@dmulcahey"],
   "iot_class": "local_push"
 }
