@@ -109,7 +109,7 @@ class Light(ZhaEntity, light.LightEntity):
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
-        _LOGGER.warning("Handling platform entity state changed: %s", event)
+        _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.on
         self._brightness = event.state.brightness
         self._hs_color = event.state.hs_color

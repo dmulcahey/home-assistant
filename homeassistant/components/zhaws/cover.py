@@ -79,7 +79,7 @@ class BaseCover(ZhaEntity, CoverEntity):
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
-        _LOGGER.warning("Handling platform entity state changed: %s", event)
+        _LOGGER.debug("Handling platform entity state changed: %s", event)
         _LOGGER.debug("setting position: %s", event.state)
         self._current_position = event.state.current_position
         self._state = STATE_CLOSED if event.state.is_closed else STATE_OPEN

@@ -19,6 +19,7 @@ from homeassistant.const import (
     CONCENTRATION_PARTS_PER_MILLION,
     ELECTRIC_CURRENT_AMPERE,
     ELECTRIC_POTENTIAL_VOLT,
+    ENERGY_KILO_WATT_HOUR,
     LIGHT_LUX,
     PERCENTAGE,
     POWER_VOLT_AMPERE,
@@ -27,9 +28,12 @@ from homeassistant.const import (
     TEMP_CELSIUS,
     TIME_HOURS,
     TIME_SECONDS,
+    VOLUME_CUBIC_FEET,
+    VOLUME_CUBIC_METERS,
     VOLUME_FLOW_RATE_CUBIC_FEET_PER_MINUTE,
     VOLUME_FLOW_RATE_CUBIC_METERS_PER_HOUR,
     VOLUME_GALLONS,
+    VOLUME_LITERS,
     Platform,
 )
 from homeassistant.core import HomeAssistant, callback
@@ -82,7 +86,7 @@ class Sensor(ZhaEntity, SensorEntity):
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
-        _LOGGER.warning("Handling platform entity state changed: %s", event)
+        _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.state
         self.async_write_ha_state()
 
@@ -124,7 +128,7 @@ class Battery(Sensor):
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
-        _LOGGER.warning("Handling platform entity state changed: %s", event)
+        _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.state
         self._extra_state_attributes = {}
         if BATTERY_SIZE in event.state:
@@ -165,7 +169,7 @@ class ElectricalMeasurement(Sensor):
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
-        _LOGGER.warning("Handling platform entity state changed: %s", event)
+        _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.state
         self._extra_state_attributes = {
             "measurement_type": event.state.measurement_type.title().replace("_", " "),
@@ -262,6 +266,9 @@ class SmartEnergyMetering(Sensor):
         super().__init__(*args, **kwargs)
         self._state = self._platform_entity.state.state
         self._unit = self.unit_of_measure_map.get(self._platform_entity.unit)
+        _LOGGER.debug(
+            "unit: %s for platform entity: %s", self._unit, self._platform_entity
+        )
 
         if hasattr(self._platform_entity.state, "device_type"):
             self._extra_state_attributes = {
@@ -276,7 +283,7 @@ class SmartEnergyMetering(Sensor):
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
-        _LOGGER.warning("Handling platform entity state changed: %s", event)
+        _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.state
         self._extra_state_attributes = {
             "device_type": event.state.device_type,
@@ -291,6 +298,22 @@ class SmartEnergySummation(SmartEnergyMetering):
 
     _attr_device_class: SensorDeviceClass = SensorDeviceClass.ENERGY
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
+
+    unit_of_measure_map = {
+        0x00: ENERGY_KILO_WATT_HOUR,
+        0x01: VOLUME_CUBIC_METERS,
+        0x02: VOLUME_CUBIC_FEET,
+        0x03: f"100 {VOLUME_CUBIC_FEET}",
+        0x04: f"US {VOLUME_GALLONS}",
+        0x05: f"IMP {VOLUME_GALLONS}",
+        0x06: "BTU",
+        0x07: VOLUME_LITERS,
+        0x08: "kPa",  # gauge
+        0x09: "kPa",  # absolute
+        0x0A: f"1000 {VOLUME_CUBIC_FEET}",
+        0x0B: "unitless",
+        0x0C: "MJ",
+    }
 
 
 @REGISTER_CLASS()
