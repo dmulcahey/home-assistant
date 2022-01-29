@@ -7,6 +7,7 @@ import logging
 from typing import TypeVar
 
 from zhaws.client.controller import Controller
+from zhaws.client.model.events import DeviceFullyInitializedEvent
 from zhaws.client.proxy import DeviceProxy, GroupProxy
 
 from homeassistant.config_entries import ConfigEntry
@@ -144,6 +145,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.warning("Couldn't setup zhaws platform: %s", res)
 
     async_dispatcher_send(hass, SIGNAL_ADD_ENTITIES, devices.values(), groups.values())
+
+    @callback
+    def add_entities_new_join(event: DeviceFullyInitializedEvent):
+        """Add entities from ZHAWS."""
+        if event.new_join:
+            _LOGGER.info("New device joined: %s - adding entities", event.device)
+            async_dispatcher_send(
+                hass, SIGNAL_ADD_ENTITIES, [controller.devices[event.device.ieee]], []
+            )
+
+    controller.on_event("device_fully_initialized", add_entities_new_join)
 
     await controller.clients.listen()
 
