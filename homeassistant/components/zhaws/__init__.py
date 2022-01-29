@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 import logging
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 from zhaws.client.controller import Controller
-from zhaws.client.device import Device
-from zhaws.client.group import Group
+from zhaws.client.proxy import DeviceProxy, GroupProxy
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -20,10 +20,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import COORDINATOR_IEEE, DOMAIN, SIGNAL_ADD_ENTITIES
 from .entity import ZhaEntity
 
-"""
-    Platform.CLIMATE,
-    Platform.FAN,
-    """
+# Platform.CLIMATE,
+# Platform.FAN,
 PLATFORMS = [
     Platform.ALARM_CONTROL_PANEL,
     Platform.BUTTON,
@@ -49,7 +47,7 @@ class EntityClassRegistry(dict):
     """Dict Registry of class name to class."""
 
     def register(
-        self, platform: str, alternate_class_names: list[str] = []
+        self, platform: str, alternate_class_names: list[str] = None
     ) -> Callable[[CALLABLE_T], CALLABLE_T]:
         """Return decorator to register item with a specific name."""
 
@@ -74,15 +72,15 @@ async def add_entities(
     async_add_entities: AddEntitiesCallback,
     platform: Platform,
     logger: logging.Logger,
-    devices: list[Device] | None,
-    groups: list[Group] | None,
+    devices: list[DeviceProxy] | None,
+    groups: list[GroupProxy] | None,
 ) -> None:
     """Set up the zhaws sensors from config entry."""
     logger.warning("Adding entities for platform: %s", platform)
     entities: list[ZhaEntity] = []
     if devices:
         for device in devices:
-            for entity in device.device.entities.values():
+            for entity in device.device_model.entities.values():
                 logger.debug("processed entity: %s", entity)
                 if entity.platform != platform:
                     continue
@@ -93,7 +91,7 @@ async def add_entities(
                 entities.append(entity_class(device, entity))
     if groups:
         for group in groups:
-            for entity in group.group.entities.values():
+            for entity in group.group_model.entities.values():
                 logger.debug("processed entity: %s", entity)
                 if entity.platform != platform:
                     continue
@@ -121,11 +119,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await controller.load_devices()
     await controller.load_groups()
 
-    devices: dict[str, Device] = controller.devices
-    groups: dict[int, Group] = controller.groups
+    devices: dict[str, DeviceProxy] = controller.devices
+    groups: dict[int, GroupProxy] = controller.groups
 
     for ieee, device in devices.items():
-        if device.device.nwk == "0x0000":
+        if device.device_model.nwk == "0x0000":
             hass.data[DOMAIN][COORDINATOR_IEEE] = ieee
             device_registry = await hass.helpers.device_registry.async_get_registry()
             device_registry.async_get_or_create(

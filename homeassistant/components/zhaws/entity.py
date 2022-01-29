@@ -5,9 +5,9 @@ import asyncio
 import logging
 from typing import Any
 
-from zhaws.client.device import Device
 from zhaws.client.model.events import PlatformEntityEvent
 from zhaws.client.model.types import BasePlatformEntity
+from zhaws.client.proxy import DeviceProxy, GroupProxy
 
 from homeassistant.core import callback
 from homeassistant.helpers import entity
@@ -50,12 +50,12 @@ class BaseZhaEntity(LogMixin, entity.Entity):
 
     def __init__(
         self,
-        device: Device,
+        parent_proxy: DeviceProxy | GroupProxy,
         platform_entity: BasePlatformEntity,
         **kwargs,
     ) -> None:
         """Init ZHA entity."""
-        self._device: Device = device
+        self._parent_proxy: DeviceProxy | GroupProxy = parent_proxy
         self._platform_entity: BasePlatformEntity = platform_entity
         self._name: str = platform_entity.name
         self._force_update: bool = False
@@ -76,9 +76,9 @@ class BaseZhaEntity(LogMixin, entity.Entity):
         return self._unique_id
 
     @property
-    def device(self) -> Device:
-        """Return the device this entity is attached to."""
-        return self._device
+    def device_or_group(self) -> DeviceProxy | GroupProxy:
+        """Return the device or group this entity is attached to."""
+        return self._parent_proxy
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -98,13 +98,15 @@ class BaseZhaEntity(LogMixin, entity.Entity):
     @property
     def device_info(self) -> entity.DeviceInfo | None:
         """Return a device description for device registry."""
-        if hasattr(self._device, "device"):
+        if hasattr(self._parent_proxy, "device_model"):
             return entity.DeviceInfo(
-                connections={(CONNECTION_ZIGBEE, self.device.device.ieee)},
-                identifiers={(DOMAIN, self.device.device.ieee)},
-                manufacturer=self.device.device.manufacturer,
-                model=self.device.device.model,
-                name=self.device.device.name,
+                connections={
+                    (CONNECTION_ZIGBEE, self.device_or_group.device_model.ieee)
+                },
+                identifiers={(DOMAIN, self.device_or_group.device_model.ieee)},
+                manufacturer=self.device_or_group.device_model.manufacturer,
+                model=self.device_or_group.device_model.model,
+                name=self.device_or_group.device_model.name,
                 via_device=(DOMAIN, self.hass.data[ZHAWS][COORDINATOR_IEEE]),
             )
         return None
@@ -138,14 +140,15 @@ class ZhaEntity(BaseZhaEntity):
     def available(self) -> bool:
         """Return entity availability."""
         return True
-        # TODO force all available for now
-        # return self._device.device.available
+        # TODO force all available for now # pylint: disable=w0511
+        # return self.device_or_group.device.available
 
     async def async_added_to_hass(self) -> None:
         """Run when about to be added to hass."""
         self.remove_future = asyncio.Future()
-        self._platform_entity.on_event(
-            "platform_entity_state_changed", self.platform_entity_state_changed
+        self.device_or_group.on_event(
+            f"{self._platform_entity.unique_id}_platform_entity_state_changed",
+            self.platform_entity_state_changed,
         )
 
     async def async_will_remove_from_hass(self) -> None:
@@ -155,94 +158,6 @@ class ZhaEntity(BaseZhaEntity):
 
     async def async_update(self) -> None:
         """Retrieve latest state."""
-        await self._device.controller.entities.refresh_state(self._platform_entity)
-
-
-"""
-class ZhaGroupEntity(BaseZhaEntity):
-    #A base class for ZHA group entities.
-
-    def __init__(
-        self, entity_ids: list[str], unique_id: str, group_id: int, zha_device, **kwargs
-    ) -> None:
-        #Initialize a light group.
-        super().__init__(unique_id, zha_device, **kwargs)
-        self._available = False
-        self._group = zha_device.gateway.groups.get(group_id)
-        self._name = f"{self._group.name}_zha_group_0x{group_id:04x}"
-        self._group_id: int = group_id
-        self._entity_ids: list[str] = entity_ids
-        self._async_unsub_state_changed: CALLBACK_TYPE | None = None
-        self._handled_group_membership = False
-        self._change_listener_debouncer: Debouncer | None = None
-
-    @property
-    def available(self) -> bool:
-        #Return entity availability.
-        return self._available
-
-    @classmethod
-    def create_entity(
-        cls, entity_ids: list[str], unique_id: str, group_id: int, zha_device, **kwargs
-    ) -> ZhaGroupEntity | None:
-        #Group Entity Factory.
-
-        #Return entity if it is a supported configuration, otherwise return None
-
-        return cls(entity_ids, unique_id, group_id, zha_device, **kwargs)
-
-    async def _handle_group_membership_changed(self):
-        #Handle group membership changed.
-        # Make sure we don't call remove twice as members are removed
-        if self._handled_group_membership:
-            return
-
-        self._handled_group_membership = True
-        await self.async_remove(force_remove=True)
-
-    async def async_added_to_hass(self) -> None:
-        #Register callbacks.
-        await super().async_added_to_hass()
-
-        self.async_accept_signal(
-            None,
-            f"{SIGNAL_GROUP_MEMBERSHIP_CHANGE}_0x{self._group_id:04x}",
-            self._handle_group_membership_changed,
-            signal_override=True,
+        await self.device_or_group.controller.entities.refresh_state(
+            self._platform_entity
         )
-
-        if self._change_listener_debouncer is None:
-            self._change_listener_debouncer = Debouncer(
-                self.hass,
-                self,
-                cooldown=UPDATE_GROUP_FROM_CHILD_DELAY,
-                immediate=False,
-                function=functools.partial(self.async_update_ha_state, True),
-            )
-        self._async_unsub_state_changed = async_track_state_change_event(
-            self.hass, self._entity_ids, self.async_state_changed_listener
-        )
-
-        def send_removed_signal():
-            async_dispatcher_send(
-                self.hass, SIGNAL_GROUP_ENTITY_REMOVED, self._group_id
-            )
-
-        self.async_on_remove(send_removed_signal)
-
-    @callback
-    def async_state_changed_listener(self, event: Event):
-        #Handle child updates.
-        # Delay to ensure that we get updates from all members before updating the group
-        self.hass.create_task(self._change_listener_debouncer.async_call())
-
-    async def async_will_remove_from_hass(self) -> None:
-        #Handle removal from Home Assistant.
-        await super().async_will_remove_from_hass()
-        if self._async_unsub_state_changed is not None:
-            self._async_unsub_state_changed()
-            self._async_unsub_state_changed = None
-
-    async def async_update(self) -> None:
-        #Update the state of the group entity.
-"""

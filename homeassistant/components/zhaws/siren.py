@@ -88,7 +88,7 @@ class Siren(ZhaEntity, SirenEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on siren."""
-        await self._device.controller.sirens.turn_on(
+        await self.device_or_group.controller.sirens.turn_on(
             self._platform_entity,
             tone=kwargs.get(ATTR_TONE),
             duration=kwargs.get(ATTR_DURATION),
@@ -97,4 +97,4 @@ class Siren(ZhaEntity, SirenEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off siren."""
-        await self._device.controller.sirens.turn_off(self._platform_entity)
+        await self.device_or_group.controller.sirens.turn_off(self._platform_entity)

@@ -76,35 +76,35 @@ class ZHAAlarmControlPanel(ZhaEntity, AlarmControlPanelEntity):
     @property
     def code_arm_required(self):
         """Whether the code is required for arm actions."""
-        return True  # TODO fix this
+        return True  # TODO fix this # pylint: disable=w0511
 
     async def async_alarm_disarm(self, code=None):
         """Send disarm command."""
-        await self._device.controller.alarm_control_panels.disarm(
+        await self.device_or_group.controller.alarm_control_panels.disarm(
             self._platform_entity, code
         )
 
     async def async_alarm_arm_home(self, code=None):
         """Send arm home command."""
-        await self._device.controller.alarm_control_panels.arm_home(
+        await self.device_or_group.controller.alarm_control_panels.arm_home(
             self._platform_entity, code
         )
 
     async def async_alarm_arm_away(self, code=None):
         """Send arm away command."""
-        await self._device.controller.alarm_control_panels.arm_away(
+        await self.device_or_group.controller.alarm_control_panels.arm_away(
             self._platform_entity, code
         )
 
     async def async_alarm_arm_night(self, code=None):
         """Send arm night command."""
-        await self._device.controller.alarm_control_panels.arm_night(
+        await self.device_or_group.controller.alarm_control_panels.arm_night(
             self._platform_entity, code
         )
 
     async def async_alarm_trigger(self, code=None):
         """Send alarm trigger command."""
-        await self._device.controller.alarm_control_panels.trigger(
+        await self.device_or_group.controller.alarm_control_panels.trigger(
             self._platform_entity, code
         )
 

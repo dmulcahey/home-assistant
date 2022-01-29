@@ -4,15 +4,16 @@ from __future__ import annotations
 import functools
 import logging
 
-from zhaws.client.device import Device
 from zhaws.client.model.commands import CommandResponse
 from zhaws.client.model.types import BasePlatformEntity
+from zhaws.client.proxy import DeviceProxy, GroupProxy
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ENTITY_CATEGORY_CONFIG, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import ENTITY_CLASS_REGISTRY, add_entities
@@ -49,13 +50,18 @@ async def async_setup_entry(
 class EnumSelectEntity(ZhaEntity, SelectEntity):
     """Representation of a ZHA select entity."""
 
-    _attr_entity_category = ENTITY_CATEGORY_CONFIG
+    _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, device: Device, platform_entity: BasePlatformEntity, **kwargs):
+    def __init__(
+        self,
+        device_or_group: DeviceProxy | GroupProxy,
+        platform_entity: BasePlatformEntity,
+        **kwargs,
+    ):
         """Initialize the select."""
         self._attr_name = platform_entity.enum
         self._attr_options = platform_entity.options
-        super().__init__(device, platform_entity, **kwargs)
+        super().__init__(device_or_group, platform_entity, **kwargs)
         self._current_option: str | int | None = self._platform_entity.state.state
 
     @property
@@ -70,9 +76,11 @@ class EnumSelectEntity(ZhaEntity, SelectEntity):
 
     async def async_select_option(self, option: str | int) -> None:
         """Change the selected option."""
-        result: CommandResponse = await self._device.controller.selects.select_option(
-            self._platform_entity,
-            option,
+        result: CommandResponse = (
+            await self.device_or_group.controller.selects.select_option(
+                self._platform_entity,
+                option,
+            )
         )
         if not result.success:
             return

@@ -19,7 +19,6 @@ from homeassistant.const import (
     CONCENTRATION_PARTS_PER_MILLION,
     ELECTRIC_CURRENT_AMPERE,
     ELECTRIC_POTENTIAL_VOLT,
-    ENTITY_CATEGORY_DIAGNOSTIC,
     LIGHT_LUX,
     PERCENTAGE,
     POWER_VOLT_AMPERE,
@@ -372,7 +371,7 @@ class RSSISensor(Sensor):
 
     _state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _device_class: SensorDeviceClass = SensorDeviceClass.SIGNAL_STRENGTH
-    _attr_entity_category = ENTITY_CATEGORY_DIAGNOSTIC
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
 
 
@@ -386,7 +385,7 @@ class LastSeenSensor(Sensor):
     """Last seen sensor for a device."""
 
     _device_class: SensorDeviceClass = SensorDeviceClass.TIMESTAMP
-    _attr_entity_category = ENTITY_CATEGORY_DIAGNOSTIC
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
 
     @property

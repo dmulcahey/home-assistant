@@ -315,6 +315,6 @@ class ZhaNumber(ZhaEntity, NumberEntity):
     async def async_set_value(self, value):
         """Update the current value from HA."""
         num_value = float(value)
-        await self._device.controller.numbers.set_value(
+        await self.device_or_group.controller.numbers.set_value(
             self._platform_entity, num_value
         )
