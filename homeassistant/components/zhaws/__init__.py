@@ -77,7 +77,7 @@ async def add_entities(
     groups: list[GroupProxy] | None,
 ) -> None:
     """Set up the zhaws sensors from config entry."""
-    logger.warning("Adding entities for platform: %s", platform)
+    logger.debug("Adding entities for platform: %s", platform)
     entities: list[ZhaEntity] = []
     if devices:
         for device in devices:
@@ -86,7 +86,7 @@ async def add_entities(
                 if entity.platform != platform:
                     continue
                 entity_class = ENTITY_CLASS_REGISTRY[platform][entity.class_name]
-                logger.warning(
+                logger.debug(
                     "Creating entity: %s with class: %s", entity, entity_class.__name__
                 )
                 entities.append(entity_class(device, entity))
@@ -97,7 +97,7 @@ async def add_entities(
                 if entity.platform != platform:
                     continue
                 entity_class = ENTITY_CLASS_REGISTRY[platform][entity.class_name]
-                logger.warning(
+                logger.debug(
                     "Creating entity: %s with class: %s", entity, entity_class.__name__
                 )
                 entities.append(entity_class(group, entity))
@@ -142,13 +142,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     results = await asyncio.gather(*platform_tasks, return_exceptions=True)
     for res in results:
         if isinstance(res, Exception):
-            _LOGGER.warning("Couldn't setup zhaws platform: %s", res)
+            _LOGGER.error("Couldn't setup zhaws platform: %s", res)
 
     async_dispatcher_send(hass, SIGNAL_ADD_ENTITIES, devices.values(), groups.values())
 
     @callback
     def add_entities_new_join(event: DeviceFullyInitializedEvent):
         """Add entities from ZHAWS."""
+        _LOGGER.debug("Device fully initialized: %s", event)
         if event.new_join:
             _LOGGER.info("New device joined: %s - adding entities", event.device)
             async_dispatcher_send(

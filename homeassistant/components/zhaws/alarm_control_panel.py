@@ -59,7 +59,7 @@ class ZHAAlarmControlPanel(ZhaEntity, AlarmControlPanelEntity):
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
-        _LOGGER.warning("Handling platform entity state changed: %s", event)
+        _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.state
         self.async_write_ha_state()
 
@@ -76,7 +76,7 @@ class ZHAAlarmControlPanel(ZhaEntity, AlarmControlPanelEntity):
     @property
     def code_arm_required(self):
         """Whether the code is required for arm actions."""
-        return True  # TODO fix this # pylint: disable=w0511
+        return True  # TODO fix this # pylint: disable=fixme
 
     async def async_alarm_disarm(self, code=None):
         """Send disarm command."""

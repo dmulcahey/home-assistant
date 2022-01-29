@@ -66,7 +66,7 @@ class DeviceTracker(ScannerEntity, ZhaEntity):
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
-        _LOGGER.warning("Handling platform entity state changed: %s", event)
+        _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._connected = event.state.connected
         self._battery_level = event.state.battery_level
         self.async_write_ha_state()

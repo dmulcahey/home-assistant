@@ -62,7 +62,7 @@ class BinarySensor(ZhaEntity, BinarySensorEntity):
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
-        _LOGGER.warning(
+        _LOGGER.debug(
             "Handling platform entity: %s state changed: %s",
             f"{self.unique_id}-{self.entity_id}",
             event,
@@ -115,9 +115,9 @@ class Motion(BinarySensor):
 class IASZone(BinarySensor):
     """ZHA IAS BinarySensor."""
 
-    """TODO
     @property
     def device_class(self) -> str:
-        #Return device class from component DEVICE_CLASSES.
-        return CLASS_MAPPING.get(self._channel.cluster.get("zone_type"))
-    """
+        """Return device class from CLASS_MAPPING."""
+        return CLASS_MAPPING.get(
+            self._platform_entity.zone_type, BinarySensorDeviceClass.OPENING
+        )

@@ -308,7 +308,7 @@ class ZhaNumber(ZhaEntity, NumberEntity):
     @callback
     def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
         """Set the entity state."""
-        _LOGGER.warning("Handling platform entity state changed: %s", event)
+        _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.state
         self.async_write_ha_state()
 
