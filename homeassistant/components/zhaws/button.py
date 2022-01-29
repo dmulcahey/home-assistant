@@ -6,9 +6,10 @@ import logging
 
 from homeassistant.components.button import ButtonDeviceClass, ButtonEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ENTITY_CATEGORY_DIAGNOSTIC, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import ENTITY_CLASS_REGISTRY, add_entities
@@ -41,7 +42,7 @@ class ZHAButton(ZhaEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Send out a update command."""
-        await self._device.controller.buttons.press(self._platform_entity)
+        await self.device_or_group.controller.buttons.press(self._platform_entity)
 
 
 @REGISTER_CLASS()
@@ -49,5 +50,5 @@ class IdentifyButton(ZHAButton):
     """Defines a ZHA identify button."""
 
     _attr_device_class: ButtonDeviceClass = ButtonDeviceClass.UPDATE
-    _attr_entity_category = ENTITY_CATEGORY_DIAGNOSTIC
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _command_name = "identify"

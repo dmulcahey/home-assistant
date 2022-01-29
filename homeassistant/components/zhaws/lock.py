@@ -108,15 +108,15 @@ class Lock(ZhaEntity, LockEntity):
 
     async def async_lock(self, **kwargs):
         """Lock the lock."""
-        await self._device.controller.locks.lock(self._platform_entity)
+        await self.device_or_group.controller.locks.lock(self._platform_entity)
 
     async def async_unlock(self, **kwargs):
         """Unlock the lock."""
-        await self._device.controller.locks.unlock(self._platform_entity)
+        await self.device_or_group.controller.locks.unlock(self._platform_entity)
 
     async def async_set_lock_user_code(self, code_slot: int, user_code: str) -> None:
         """Set the user_code to index X on the lock."""
-        await self._device.controller.locks.set_user_lock_code(
+        await self.device_or_group.controller.locks.set_user_lock_code(
             self._platform_entity,
             code_slot,
             user_code,
@@ -125,21 +125,21 @@ class Lock(ZhaEntity, LockEntity):
 
     async def async_enable_lock_user_code(self, code_slot: int) -> None:
         """Enable user_code at index X on the lock."""
-        await self._device.controller.locks.enable_user_lock_code(
+        await self.device_or_group.controller.locks.enable_user_lock_code(
             self._platform_entity, code_slot
         )
         self.debug("User code at slot %s enabled", code_slot)
 
     async def async_disable_lock_user_code(self, code_slot: int) -> None:
         """Disable user_code at index X on the lock."""
-        await self._device.controller.locks.disable_user_lock_code(
+        await self.device_or_group.controller.locks.disable_user_lock_code(
             self._platform_entity, code_slot
         )
         self.debug("User code at slot %s disabled", code_slot)
 
     async def async_clear_lock_user_code(self, code_slot: int) -> None:
         """Clear the user_code at index X on the lock."""
-        await self._device.controller.locks.clear_user_lock_code(
+        await self.device_or_group.controller.locks.clear_user_lock_code(
             self._platform_entity, code_slot
         )
         self.debug("User code at slot %s cleared", code_slot)

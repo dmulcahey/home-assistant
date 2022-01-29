@@ -59,13 +59,13 @@ class Switch(SwitchEntity, ZhaEntity):
             "Handling platform entity state changed in switch group: %s", event
         )
         self._state = bool(event.state.state)
-        _LOGGER.warning("state is now: %s", self._state)
+        _LOGGER.warning("State is now: %s", self._state)
         self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the entity on."""
-        await self._device.controller.switches.turn_on(self._platform_entity)
+        await self.device_or_group.controller.switches.turn_on(self._platform_entity)
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the entity off."""
-        await self._device.controller.switches.turn_off(self._platform_entity)
+        await self.device_or_group.controller.switches.turn_off(self._platform_entity)

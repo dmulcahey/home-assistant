@@ -120,8 +120,12 @@ class Light(ZhaEntity, light.LightEntity):
 
     async def async_turn_on(self, **kwargs):
         """Turn the entity on."""
-        await self._device.controller.lights.turn_on(self._platform_entity, **kwargs)
+        await self.device_or_group.controller.lights.turn_on(
+            self._platform_entity, **kwargs
+        )
 
     async def async_turn_off(self, **kwargs):
         """Turn the entity off."""
-        await self._device.controller.lights.turn_off(self._platform_entity, **kwargs)
+        await self.device_or_group.controller.lights.turn_off(
+            self._platform_entity, **kwargs
+        )

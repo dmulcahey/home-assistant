@@ -87,26 +87,26 @@ class BaseCover(ZhaEntity, CoverEntity):
 
     async def async_open_cover(self, **kwargs):
         """Open the window cover."""
-        await self._device.controller.covers.open_cover(
+        await self.device_or_group.controller.covers.open_cover(
             self._platform_entity,
         )
 
     async def async_close_cover(self, **kwargs):
         """Close the window cover."""
-        await self._device.controller.covers.close_cover(
+        await self.device_or_group.controller.covers.close_cover(
             self._platform_entity,
         )
 
     async def async_set_cover_position(self, **kwargs):
         """Move the roller shutter to a specific position."""
         new_pos = kwargs[ATTR_POSITION]
-        await self._device.controller.covers.set_cover_position(
+        await self.device_or_group.controller.covers.set_cover_position(
             self._platform_entity, new_pos
         )
 
     async def async_stop_cover(self, **kwargs):
         """Stop the window cover."""
-        await self._device.controller.covers.stop_cover(
+        await self.device_or_group.controller.covers.stop_cover(
             self._platform_entity,
         )
 
