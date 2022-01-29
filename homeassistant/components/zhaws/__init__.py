@@ -7,14 +7,14 @@ import logging
 from typing import TypeVar
 
 from zhaws.client.controller import Controller
-from zhaws.client.model.events import DeviceFullyInitializedEvent
+from zhaws.client.model.events import DeviceFullyInitializedEvent, DeviceRemovedEvent
 from zhaws.client.proxy import DeviceProxy, GroupProxy
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.device_registry import CONNECTION_ZIGBEE
+from homeassistant.helpers.device_registry import CONNECTION_ZIGBEE, async_get_registry
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -156,6 +156,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
 
     controller.on_event("device_fully_initialized", add_entities_new_join)
+
+    ha_device_registry = await async_get_registry(hass)
+
+    @callback
+    def remove_device(event: DeviceRemovedEvent):
+        """Remove a device from ZHAWS."""
+        async_dispatcher_send(hass, f"remove_device_{str(event.device.ieee)}")
+        reg_device = ha_device_registry.async_get_device({("zhaws", event.device.ieee)})
+        if reg_device is not None:
+            _LOGGER.info("Removing device: %s from device registry", event.device)
+            ha_device_registry.async_remove_device(reg_device.id)
+
+    controller.on_event("device_removed", remove_device)
 
     await controller.clients.listen()
 

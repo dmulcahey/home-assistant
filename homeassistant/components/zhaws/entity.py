@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 from typing import Any
 
@@ -12,6 +13,7 @@ from zhaws.client.proxy import DeviceProxy, GroupProxy
 from homeassistant.core import callback
 from homeassistant.helpers import entity
 from homeassistant.helpers.device_registry import CONNECTION_ZIGBEE
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import COORDINATOR_IEEE, DOMAIN, ZHAWS
 
@@ -146,6 +148,12 @@ class ZhaEntity(BaseZhaEntity):
     async def async_added_to_hass(self) -> None:
         """Run when about to be added to hass."""
         self.remove_future = asyncio.Future()
+        if isinstance(self.device_or_group, DeviceProxy):
+            async_dispatcher_connect(
+                self.hass,
+                f"remove_device_{self._parent_proxy.device_model.ieee}",
+                functools.partial(self.async_remove, force_remove=True),
+            )
         self.device_or_group.on_event(
             f"{self._platform_entity.unique_id}_platform_entity_state_changed",
             self.platform_entity_state_changed,
