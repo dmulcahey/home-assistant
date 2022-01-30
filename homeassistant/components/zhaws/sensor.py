@@ -5,7 +5,7 @@ from datetime import datetime
 import functools
 import logging
 
-from zhaws.client.model.events import PlatformEntityEvent
+from zhaws.client.model.events import PlatformEntityStateChangedEvent
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -84,7 +84,9 @@ class Sensor(ZhaEntity, SensorEntity):
             self._sensor_attribute = self._platform_entity.attribute
 
     @callback
-    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+    def platform_entity_state_changed(
+        self, event: PlatformEntityStateChangedEvent
+    ) -> None:
         """Set the entity state."""
         _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.state
@@ -126,7 +128,9 @@ class Battery(Sensor):
         }
 
     @callback
-    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+    def platform_entity_state_changed(
+        self, event: PlatformEntityStateChangedEvent
+    ) -> None:
         """Set the entity state."""
         _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.state
@@ -167,7 +171,9 @@ class ElectricalMeasurement(Sensor):
                 )
 
     @callback
-    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+    def platform_entity_state_changed(
+        self, event: PlatformEntityStateChangedEvent
+    ) -> None:
         """Set the entity state."""
         _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.state
@@ -281,7 +287,9 @@ class SmartEnergyMetering(Sensor):
                 self._extra_state_attributes["status"] = status
 
     @callback
-    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+    def platform_entity_state_changed(
+        self, event: PlatformEntityStateChangedEvent
+    ) -> None:
         """Set the entity state."""
         _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.state

@@ -5,7 +5,7 @@ import functools
 import logging
 from typing import Any
 
-from zhaws.client.model.events import PlatformEntityEvent
+from zhaws.client.model.events import PlatformEntityStateChangedEvent
 
 from homeassistant.components import light
 from homeassistant.config_entries import ConfigEntry
@@ -107,7 +107,9 @@ class Light(ZhaEntity, light.LightEntity):
         return self._platform_entity.supported_features
 
     @callback
-    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+    def platform_entity_state_changed(
+        self, event: PlatformEntityStateChangedEvent
+    ) -> None:
         """Set the entity state."""
         _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.on

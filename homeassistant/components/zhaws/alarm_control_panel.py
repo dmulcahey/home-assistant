@@ -4,7 +4,7 @@ from __future__ import annotations
 import functools
 import logging
 
-from zhaws.client.model.events import PlatformEntityEvent
+from zhaws.client.model.events import PlatformEntityStateChangedEvent
 
 from homeassistant.components.alarm_control_panel import (
     FORMAT_TEXT,
@@ -57,7 +57,9 @@ class ZHAAlarmControlPanel(ZhaEntity, AlarmControlPanelEntity):
         self._state = self._platform_entity.state.state
 
     @callback
-    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+    def platform_entity_state_changed(
+        self, event: PlatformEntityStateChangedEvent
+    ) -> None:
         """Set the entity state."""
         _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.state

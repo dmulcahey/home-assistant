@@ -4,7 +4,7 @@ from __future__ import annotations
 import functools
 import logging
 
-from zhaws.client.model.events import PlatformEntityEvent
+from zhaws.client.model.events import PlatformEntityStateChangedEvent
 
 from homeassistant.components.device_tracker import SOURCE_TYPE_ROUTER
 from homeassistant.components.device_tracker.config_entry import ScannerEntity
@@ -64,7 +64,9 @@ class DeviceTracker(ScannerEntity, ZhaEntity):
         return SOURCE_TYPE_ROUTER
 
     @callback
-    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+    def platform_entity_state_changed(
+        self, event: PlatformEntityStateChangedEvent
+    ) -> None:
         """Set the entity state."""
         _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._connected = event.state.connected

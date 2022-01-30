@@ -2,7 +2,7 @@
 import functools
 import logging
 
-from zhaws.client.model.events import PlatformEntityEvent
+from zhaws.client.model.events import PlatformEntityStateChangedEvent
 
 from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
@@ -306,7 +306,9 @@ class ZhaNumber(ZhaEntity, NumberEntity):
         return UNITS.get(engineering_units)
 
     @callback
-    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+    def platform_entity_state_changed(
+        self, event: PlatformEntityStateChangedEvent
+    ) -> None:
         """Set the entity state."""
         _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = event.state.state

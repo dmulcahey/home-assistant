@@ -2,7 +2,7 @@
 import functools
 import logging
 
-from zhaws.client.model.events import PlatformEntityEvent
+from zhaws.client.model.events import PlatformEntityStateChangedEvent
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -60,7 +60,9 @@ class BinarySensor(ZhaEntity, BinarySensorEntity):
         self._state = self._platform_entity.state.state
 
     @callback
-    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+    def platform_entity_state_changed(
+        self, event: PlatformEntityStateChangedEvent
+    ) -> None:
         """Set the entity state."""
         _LOGGER.debug(
             "Handling platform entity: %s state changed: %s",

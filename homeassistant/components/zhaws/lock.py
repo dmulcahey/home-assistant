@@ -3,7 +3,7 @@ import functools
 import logging
 
 import voluptuous as vol
-from zhaws.client.model.events import PlatformEntityEvent
+from zhaws.client.model.events import PlatformEntityStateChangedEvent
 
 from homeassistant.components.lock import STATE_LOCKED, STATE_UNLOCKED, LockEntity
 from homeassistant.config_entries import ConfigEntry
@@ -100,7 +100,9 @@ class Lock(ZhaEntity, LockEntity):
         return self._state == STATE_LOCKED
 
     @callback
-    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+    def platform_entity_state_changed(
+        self, event: PlatformEntityStateChangedEvent
+    ) -> None:
         """Set the entity state."""
         _LOGGER.debug("Handling platform entity state changed: %s", event)
         self._state = STATE_LOCKED if event.state.is_locked else STATE_UNLOCKED
