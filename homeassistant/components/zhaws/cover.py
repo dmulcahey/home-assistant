@@ -4,7 +4,7 @@ from __future__ import annotations
 import functools
 import logging
 
-from zhaws.client.model.events import PlatformEntityEvent
+from zhaws.client.model.events import PlatformEntityStateChangedEvent
 
 from homeassistant.components.cover import ATTR_POSITION, CoverDeviceClass, CoverEntity
 from homeassistant.config_entries import ConfigEntry
@@ -77,7 +77,9 @@ class BaseCover(ZhaEntity, CoverEntity):
         return self._current_position
 
     @callback
-    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+    def platform_entity_state_changed(
+        self, event: PlatformEntityStateChangedEvent
+    ) -> None:
         """Set the entity state."""
         _LOGGER.debug("Handling platform entity state changed: %s", event)
         _LOGGER.debug("setting position: %s", event.state)

@@ -6,7 +6,7 @@ import functools
 import logging
 from typing import Any
 
-from zhaws.client.model.events import PlatformEntityEvent
+from zhaws.client.model.events import PlatformEntityStateChangedEvent
 from zhaws.client.model.types import BasePlatformEntity
 from zhaws.client.proxy import DeviceProxy, GroupProxy
 
@@ -125,7 +125,9 @@ class BaseZhaEntity(LogMixin, entity.Entity):
         self.async_write_ha_state()
 
     @callback
-    def platform_entity_state_changed(self, event: PlatformEntityEvent) -> None:
+    def platform_entity_state_changed(
+        self, event: PlatformEntityStateChangedEvent
+    ) -> None:
         """Set the entity state."""
 
     def log(self, level: int, msg: str, *args):
