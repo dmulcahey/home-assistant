@@ -6,6 +6,7 @@ from collections.abc import Callable
 import logging
 from typing import TypeVar
 
+from async_timeout import timeout
 from zhaws.client.controller import Controller
 from zhaws.client.model.events import DeviceFullyInitializedEvent, DeviceRemovedEvent
 from zhaws.client.proxy import DeviceProxy, GroupProxy
@@ -13,12 +14,21 @@ from zhaws.client.proxy import DeviceProxy, GroupProxy
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import CONNECTION_ZIGBEE, async_get_registry
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import COORDINATOR_IEEE, DOMAIN, SIGNAL_ADD_ENTITIES
+from .addon import AddonError, AddonManager, AddonState, get_addon_manager
+from .const import (
+    CONF_ADDON_DEVICE,
+    CONF_USB_PATH,
+    CONF_USE_ADDON,
+    COORDINATOR_IEEE,
+    DOMAIN,
+    SIGNAL_ADD_ENTITIES,
+)
 from .entity import ZhaEntity
 
 # Platform.CLIMATE,
@@ -40,6 +50,7 @@ PLATFORMS = [
 
 
 CALLABLE_T = TypeVar("CALLABLE_T", bound=Callable)  # pylint: disable=invalid-name
+CONNECT_TIMEOUT = 10
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -107,6 +118,8 @@ async def add_entities(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up ZHAWS from a config entry."""
+    if entry.data.get(CONF_USE_ADDON):
+        await async_ensure_addon_running(hass, entry)
 
     session = async_get_clientsession(hass)
     controller: Controller = None
@@ -116,7 +129,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data["url"], session
     )
 
-    await controller.connect()
+    try:
+        async with timeout(CONNECT_TIMEOUT):
+            await controller.connect()
+    except (asyncio.TimeoutError) as err:
+        raise ConfigEntryNotReady from err
+    else:
+        _LOGGER.info("Connected to ZHAWS Server")
+
     await controller.load_devices()
     await controller.load_groups()
 
@@ -184,4 +204,59 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
 
+    if entry.data.get(CONF_USE_ADDON) and entry.disabled_by:
+        addon_manager: AddonManager = get_addon_manager(hass)
+        _LOGGER.debug("Stopping ZHAWS add-on")
+        try:
+            await addon_manager.async_stop_addon()
+        except AddonError as err:
+            _LOGGER.error("Failed to stop the ZHAWS add-on: %s", err)
+            return False
+
     return unload_ok
+
+
+async def async_ensure_addon_running(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Ensure that ZHAWS add-on is installed and running."""
+    addon_manager: AddonManager = get_addon_manager(hass)
+    if addon_manager.task_in_progress():
+        raise ConfigEntryNotReady
+    try:
+        addon_info = await addon_manager.async_get_addon_info()
+    except AddonError as err:
+        _LOGGER.error(err)
+        raise ConfigEntryNotReady from err
+
+    usb_path: str = entry.data[CONF_USB_PATH]
+    addon_state = addon_info.state
+
+    if addon_state == AddonState.NOT_INSTALLED:
+        addon_manager.async_schedule_install_setup_addon(
+            usb_path,
+            catch_error=True,
+        )
+        raise ConfigEntryNotReady
+
+    if addon_state == AddonState.NOT_RUNNING:
+        addon_manager.async_schedule_setup_addon(
+            usb_path,
+            catch_error=True,
+        )
+        raise ConfigEntryNotReady
+
+    addon_options = addon_info.options
+    addon_device = addon_options[CONF_ADDON_DEVICE]
+    updates = {}
+    if usb_path != addon_device:
+        updates[CONF_USB_PATH] = addon_device
+    if updates:
+        hass.config_entries.async_update_entry(entry, data={**entry.data, **updates})
+
+
+@callback
+def async_ensure_addon_updated(hass: HomeAssistant) -> None:
+    """Ensure that ZHAWS add-on is updated and running."""
+    addon_manager: AddonManager = get_addon_manager(hass)
+    if addon_manager.task_in_progress():
+        raise ConfigEntryNotReady
+    addon_manager.async_schedule_update_addon(catch_error=True)
