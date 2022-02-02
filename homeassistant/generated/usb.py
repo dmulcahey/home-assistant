@@ -80,6 +80,54 @@ USB = [
         "description": "*bv 2010/10*"
     },
     {
+        "domain": "zhaws",
+        "vid": "10C4",
+        "pid": "EA60",
+        "description": "*2652*"
+    },
+    {
+        "domain": "zhaws",
+        "vid": "10C4",
+        "pid": "EA60",
+        "description": "*sonoff*plus*"
+    },
+    {
+        "domain": "zhaws",
+        "vid": "10C4",
+        "pid": "EA60",
+        "description": "*tubeszb*"
+    },
+    {
+        "domain": "zhaws",
+        "vid": "1A86",
+        "pid": "7523",
+        "description": "*tubeszb*"
+    },
+    {
+        "domain": "zhaws",
+        "vid": "1A86",
+        "pid": "7523",
+        "description": "*zigstar*"
+    },
+    {
+        "domain": "zhaws",
+        "vid": "1CF1",
+        "pid": "0030",
+        "description": "*conbee*"
+    },
+    {
+        "domain": "zhaws",
+        "vid": "10C4",
+        "pid": "8A2A",
+        "description": "*zigbee*"
+    },
+    {
+        "domain": "zhaws",
+        "vid": "10C4",
+        "pid": "8B34",
+        "description": "*bv 2010/10*"
+    },
+    {
         "domain": "zwave_js",
         "vid": "0658",
         "pid": "0200"

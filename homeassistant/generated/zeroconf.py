@@ -129,6 +129,10 @@ ZEROCONF = {
         {
             "domain": "zha",
             "name": "tube*"
+        },
+        {
+            "domain": "zhaws",
+            "name": "tube*"
         }
     ],
     "_fbx-api._tcp.local.": [
