@@ -481,7 +481,7 @@ class ConfigFlow(BaseFlow, config_entries.ConfigFlow, domain=DOMAIN):
                 raise AbortFlow("cannot_connect") from err
 
             await self.async_set_unique_id(
-                f"ws://{discovery_info['host']}:{discovery_info['port']}",
+                self.ws_address,
                 raise_on_progress=False,
             )
 
