@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
+import serial.tools.list_ports
 import voluptuous as vol
 from zhaws.client.controller import Controller
 
@@ -458,9 +459,19 @@ class ConfigFlow(BaseFlow, config_entries.ConfigFlow, domain=DOMAIN):
         addon_info = await self._async_get_addon_info()
         addon_config = addon_info.options
 
+        ports = await self.hass.async_add_executor_job(serial.tools.list_ports.comports)
+        list_of_ports = [
+            f"{p}, s/n: {p.serial_number or 'n/a'}"
+            + (f" - {p.manufacturer}" if p.manufacturer else "")
+            for p in ports
+        ]
+
         if user_input is not None:
             if not self._usb_discovery:
-                self.usb_path = user_input[CONF_USB_PATH]
+                port = ports[list_of_ports.index(user_input[CONF_USB_PATH])]
+                self.usb_path = await self.hass.async_add_executor_job(
+                    usb.get_serial_by_id, port.device
+                )
 
             new_addon_config = {
                 **addon_config,
@@ -477,7 +488,10 @@ class ConfigFlow(BaseFlow, config_entries.ConfigFlow, domain=DOMAIN):
         schema: dict = {}
 
         if not self._usb_discovery:
-            schema = {vol.Required(CONF_USB_PATH, default=usb_path): str, **schema}
+            schema = {
+                vol.Required(CONF_USB_PATH, default=usb_path): vol.In(list_of_ports),
+                **schema,
+            }
 
         data_schema = vol.Schema(schema)
 
@@ -634,8 +648,18 @@ class OptionsFlowHandler(BaseFlow, config_entries.OptionsFlow):
         addon_info = await self._async_get_addon_info()
         addon_config = addon_info.options
 
+        ports = await self.hass.async_add_executor_job(serial.tools.list_ports.comports)
+        list_of_ports = [
+            f"{p}, s/n: {p.serial_number or 'n/a'}"
+            + (f" - {p.manufacturer}" if p.manufacturer else "")
+            for p in ports
+        ]
+
         if user_input is not None:
-            self.usb_path = user_input[CONF_USB_PATH]
+            port = ports[list_of_ports.index(user_input[CONF_USB_PATH])]
+            self.usb_path = await self.hass.async_add_executor_job(
+                usb.get_serial_by_id, port.device
+            )
 
             new_addon_config = {
                 **addon_config,
@@ -668,7 +692,7 @@ class OptionsFlowHandler(BaseFlow, config_entries.OptionsFlow):
 
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_USB_PATH, default=usb_path): str,
+                vol.Required(CONF_USB_PATH, default=usb_path): vol.In(list_of_ports),
                 vol.Optional(CONF_LOG_LEVEL, default=log_level): vol.In(
                     ADDON_LOG_LEVELS
                 ),
