@@ -150,12 +150,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     def fire_zha_event(device_id: str, event: ZHAEvent) -> None:
         """Fire event for device fully initialized."""
-        _LOGGER.warning("Firing zha_event for device: %s", device_id)
+        _LOGGER.debug("Firing zha_event for device: %s", device_id)
         hass.bus.async_fire(
             "zha_event",
             {
                 "device_ieee": event.device.ieee,
                 "unique_id": event.cluster_handler.unique_id,
+                "endpoint_id": event.endpoint.id,
+                "endpoint_unique_id": event.endpoint.unique_id,
+                "cluster_id": event.cluster_handler.cluster.id,
+                "cluster_endpoint_attribute": event.cluster_handler.cluster.endpoint_attribute,
+                "cluster_name": event.cluster_handler.cluster.name,
                 ATTR_DEVICE_ID: device_id,
                 "command": event.command,
                 "args": event.args,
