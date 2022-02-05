@@ -3,16 +3,21 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+import functools
 import logging
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from async_timeout import timeout
 from zhaws.client.controller import Controller
-from zhaws.client.model.events import DeviceFullyInitializedEvent, DeviceRemovedEvent
+from zhaws.client.model.events import (
+    DeviceFullyInitializedEvent,
+    DeviceRemovedEvent,
+    ZHAEvent,
+)
 from zhaws.client.proxy import DeviceProxy, GroupProxy
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import ATTR_DEVICE_ID, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -143,17 +148,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     devices: dict[str, DeviceProxy] = controller.devices
     groups: dict[int, GroupProxy] = controller.groups
 
+    def fire_zha_event(device_id: str, event: ZHAEvent) -> None:
+        """Fire event for device fully initialized."""
+        _LOGGER.warning("Firing zha_event for device: %s", device_id)
+        hass.bus.async_fire(
+            "zha_event",
+            {
+                "device_ieee": event.device.ieee,
+                "unique_id": event.cluster_handler.unique_id,
+                ATTR_DEVICE_ID: device_id,
+                "command": event.command,
+                "args": event.args,
+            },
+        )
+
+    device_registry = await hass.helpers.device_registry.async_get_registry()
+
     for ieee, device in devices.items():
         if device.device_model.nwk == "0x0000":
             hass.data[DOMAIN][COORDINATOR_IEEE] = ieee
-            device_registry = await hass.helpers.device_registry.async_get_registry()
-            device_registry.async_get_or_create(
+            device_entry = device_registry.async_get_or_create(
                 config_entry_id=entry.entry_id,
                 connections={(CONNECTION_ZIGBEE, ieee)},
                 identifiers={(DOMAIN, ieee)},
                 name="Zigbee Coordinator",
                 manufacturer="ZHAWS",
             )
+        device_entry = device_registry.async_get_device({("zhaws", ieee)})
+        entry.async_on_unload(
+            device.on_event(
+                "zha_event", functools.partial(fire_zha_event, device_entry.id)
+            )
+        )
 
     platform_tasks = []
     for platform in PLATFORMS:
@@ -172,8 +198,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.debug("Device fully initialized: %s", event)
         if event.new_join:
             _LOGGER.info("New device joined: %s - adding entities", event.device)
-            async_dispatcher_send(
-                hass, SIGNAL_ADD_ENTITIES, [controller.devices[event.device.ieee]], []
+            device = controller.devices[event.device.ieee]
+            async_dispatcher_send(hass, SIGNAL_ADD_ENTITIES, [device], [])
+            device_entry = device_registry.async_get_device(
+                {("zhaws", event.device.ieee)}
+            )
+            entry.async_on_unload(
+                device.on_event(
+                    "zha_event", functools.partial(fire_zha_event, device_entry.id)
+                )
             )
 
     controller.on_event("device_fully_initialized", add_entities_new_join)
@@ -260,3 +293,33 @@ def async_ensure_addon_updated(hass: HomeAssistant) -> None:
     if addon_manager.task_in_progress():
         raise ConfigEntryNotReady
     addon_manager.async_schedule_update_addon(catch_error=True)
+
+
+async def async_get_zhaws_device(hass, device_id):
+    """Get a ZHAWS device for the given device registry id."""
+    device_registry = await hass.helpers.device_registry.async_get_registry()
+    registry_device = device_registry.async_get(device_id)
+
+    # Use device config entry ID's to validate that this is a valid zhaws device
+    # and to get the controller
+    config_entry_ids = registry_device.config_entries
+    config_entry_id = next(
+        (
+            config_entry_id
+            for config_entry_id in config_entry_ids
+            if cast(
+                ConfigEntry,
+                hass.config_entries.async_get_entry(config_entry_id),
+            ).domain
+            == DOMAIN
+        ),
+        None,
+    )
+    if config_entry_id is None or config_entry_id not in hass.data[DOMAIN]:
+        raise ValueError(
+            f"Device {device_id} is not from an existing zhaws config entry"
+        )
+
+    controller = hass.data[DOMAIN][config_entry_id]
+    ieee_address = list(list(registry_device.identifiers)[0])[1]
+    return controller.devices[ieee_address]
