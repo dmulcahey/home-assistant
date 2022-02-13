@@ -112,6 +112,11 @@ class BaseFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Set up flow instance."""
         self.usb_path: str | None = None
         self.ws_address: str | None = None
+        self.radio_type: str | None = None
+        self.radio_baudrate: str | None = None
+        self.radio_flow_control: str | None = None
+        self.enable_quirks: bool | None = None
+        self.network_auto_start: bool | None = None
         self.restart_addon: bool = False
         # If we install the add-on we should uninstall it on entry remove.
         self.integration_created_addon = False
@@ -472,10 +477,20 @@ class ConfigFlow(BaseFlow, config_entries.ConfigFlow, domain=DOMAIN):
                 self.usb_path = await self.hass.async_add_executor_job(
                     usb.get_serial_by_id, port.device
                 )
+                self.enable_quirks = user_input["enable_quirks"]
+                self.network_auto_start = user_input["network_auto_start"]
+                self.radio_type = user_input["radio_type"]
+                self.radio_baudrate = user_input["radio_baudrate"]
+                self.radio_flow_control = user_input["radio_flow_control"]
 
             new_addon_config = {
                 **addon_config,
                 CONF_ADDON_DEVICE: self.usb_path,
+                "radio_type": self.radio_type,
+                "radio_baudrate": self.radio_baudrate,
+                "radio_flow_control": self.radio_flow_control,
+                "enable_quirks": self.enable_quirks,
+                "network_auto_start": self.network_auto_start,
             }
 
             if new_addon_config != addon_config:
@@ -484,8 +499,31 @@ class ConfigFlow(BaseFlow, config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_start_addon()
 
         usb_path = self.usb_path or addon_config.get(CONF_ADDON_DEVICE) or ""
+        log_level = addon_config.get(CONF_ADDON_LOG_LEVEL, "info")
 
-        schema: dict = {}
+        schema: dict = {
+            vol.Required("enable_quirks", default=True): bool,
+            vol.Required("network_auto_start", default=True): bool,
+            vol.Required("radio_type"): vol.In(
+                ["ezsp", "xbee", "znp", "zigate", "deconz"]
+            ),
+            vol.Required("radio_baudrate"): vol.In(
+                [
+                    "2400",
+                    "4800",
+                    "9600",
+                    "14400",
+                    "19200",
+                    "38400",
+                    "57600",
+                    "115200",
+                    "128000",
+                    "256000",
+                ]
+            ),
+            vol.Required("radio_flow_control"): vol.In(["hardware", "software"]),
+            vol.Optional(CONF_LOG_LEVEL, default=log_level): vol.In(ADDON_LOG_LEVELS),
+        }
 
         if not self._usb_discovery:
             schema = {
@@ -524,6 +562,11 @@ class ConfigFlow(BaseFlow, config_entries.ConfigFlow, domain=DOMAIN):
             updates={
                 CONF_URL: self.ws_address,
                 CONF_USB_PATH: self.usb_path,
+                "radio_type": self.radio_type,
+                "radio_baudrate": self.radio_baudrate,
+                "radio_flow_control": self.radio_flow_control,
+                "enable_quirks": self.enable_quirks,
+                "network_auto_start": self.network_auto_start,
             }
         )
         return self._async_create_entry_from_vars()
@@ -542,6 +585,11 @@ class ConfigFlow(BaseFlow, config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_USB_PATH: self.usb_path,
                 CONF_USE_ADDON: self.use_addon,
                 CONF_INTEGRATION_CREATED_ADDON: self.integration_created_addon,
+                "radio_type": self.radio_type,
+                "radio_baudrate": self.radio_baudrate,
+                "radio_flow_control": self.radio_flow_control,
+                "enable_quirks": self.enable_quirks,
+                "network_auto_start": self.network_auto_start,
             },
         )
 
@@ -660,11 +708,21 @@ class OptionsFlowHandler(BaseFlow, config_entries.OptionsFlow):
             self.usb_path = await self.hass.async_add_executor_job(
                 usb.get_serial_by_id, port.device
             )
+            self.enable_quirks = user_input["enable_quirks"]
+            self.network_auto_start = user_input["network_auto_start"]
+            self.radio_type = user_input["radio_type"]
+            self.radio_baudrate = user_input["radio_baudrate"]
+            self.radio_flow_control = user_input["radio_flow_control"]
 
             new_addon_config = {
                 **addon_config,
                 CONF_ADDON_DEVICE: self.usb_path,
                 CONF_ADDON_LOG_LEVEL: user_input[CONF_LOG_LEVEL],
+                "radio_type": self.radio_type,
+                "radio_baudrate": self.radio_baudrate,
+                "radio_flow_control": self.radio_flow_control,
+                "enable_quirks": self.enable_quirks,
+                "network_auto_start": self.network_auto_start,
             }
 
             if new_addon_config != addon_config:
@@ -693,6 +751,26 @@ class OptionsFlowHandler(BaseFlow, config_entries.OptionsFlow):
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_USB_PATH, default=usb_path): vol.In(list_of_ports),
+                vol.Required("radio_type"): vol.In(
+                    ["ezsp", "xbee", "znp", "zigate", "deconz"]
+                ),
+                vol.Required("radio_baudrate"): vol.In(
+                    [
+                        "2400",
+                        "4800",
+                        "9600",
+                        "14400",
+                        "19200",
+                        "38400",
+                        "57600",
+                        "115200",
+                        "128000",
+                        "256000",
+                    ]
+                ),
+                vol.Required("radio_flow_control"): vol.In(["hardware", "software"]),
+                vol.Required("enable_quirks", default=True): bool,
+                vol.Required("network_auto_start", default=True): bool,
                 vol.Optional(CONF_LOG_LEVEL, default=log_level): vol.In(
                     ADDON_LOG_LEVELS
                 ),
@@ -735,6 +813,11 @@ class OptionsFlowHandler(BaseFlow, config_entries.OptionsFlow):
                 CONF_USB_PATH: self.usb_path,
                 CONF_USE_ADDON: True,
                 CONF_INTEGRATION_CREATED_ADDON: self.integration_created_addon,
+                "radio_type": self.radio_type,
+                "radio_baudrate": self.radio_baudrate,
+                "radio_flow_control": self.radio_flow_control,
+                "enable_quirks": self.enable_quirks,
+                "network_auto_start": self.network_auto_start,
             }
         )
         # Always reload entry since we may have disconnected the client.

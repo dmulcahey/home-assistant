@@ -26,14 +26,13 @@
         "step": {
             "configure_addon": {
                 "data": {
-                    "network_key": "Network Key",
-                    "s0_legacy_key": "S0 Key (Legacy)",
-                    "s2_access_control_key": "S2 Access Control Key",
-                    "s2_authenticated_key": "S2 Authenticated Key",
-                    "s2_unauthenticated_key": "S2 Unauthenticated Key",
-                    "usb_path": "USB Device Path"
+                    "usb_path": "USB Device Path",
+                    "radio_type": "Radio Type",
+                    "radio_baudrate": "Baud Rate",
+                    "radio_flow_control": "Flow Control",
+                    "enable_quirks": "Enable Quirks",
+                    "network_auto_start": "Automatically start the Zigbee network"
                 },
-                "description": "The add-on will generate security keys if those fields are left empty.",
                 "title": "Enter the ZHAWS add-on configuration"
             },
             "hassio_confirm": {
@@ -85,9 +84,12 @@
         "step": {
             "configure_addon": {
                 "data": {
-                    "emulate_hardware": "Emulate Hardware",
-                    "log_level": "Log level",
-                    "usb_path": "USB Device Path"
+                    "usb_path": "USB Device Path",
+                    "radio_type": "Radio Type",
+                    "radio_baudrate": "Baud Rate",
+                    "radio_flow_control": "Flow Control",
+                    "enable_quirks": "Enable Quirks",
+                    "network_auto_start": "Automatically start the Zigbee network"
                 },
                 "title": "Enter the ZHAWS add-on configuration"
             },

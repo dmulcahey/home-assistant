@@ -3,7 +3,7 @@
   "name": "ZHAWS",
   "config_flow": true,
   "documentation": "https://www.home-assistant.io/integrations/zhaws",
-  "requirements": ["zhaws==2022.02.02"],
+  "requirements": ["zhaws==2022.02.13"],
   "ssdp": [],
   "homekit": {},
   "dependencies": ["usb", "http", "websocket_api"],

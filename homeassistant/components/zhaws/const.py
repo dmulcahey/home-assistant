@@ -11,4 +11,4 @@ CONF_USE_ADDON = "use_addon"
 CONF_USB_PATH = "usb_path"
 CONF_INTEGRATION_CREATED_ADDON = "integration_created_addon"
 LOGGER = logging.getLogger(__package__)
-ADDON_SLUG = "zhaws"
+ADDON_SLUG = "local_zhaws"
