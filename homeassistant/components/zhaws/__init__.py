@@ -179,7 +179,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 name="Zigbee Coordinator",
                 manufacturer="ZHAWS",
             )
-        device_entry = device_registry.async_get_device({("zhaws", ieee)})
+        else:
+            device_entry = device_registry.async_get_or_create(
+                config_entry_id=entry.entry_id,
+                connections={(CONNECTION_ZIGBEE, ieee)},
+                identifiers={(DOMAIN, ieee)},
+            )
         entry.async_on_unload(
             device.on_event(
                 "zha_event", functools.partial(fire_zha_event, device_entry.id)
