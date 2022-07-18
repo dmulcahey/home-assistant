@@ -1,9 +1,9 @@
 """Closures cluster handlers module for Zigbee Home Automation."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-import zigpy.zcl
+import zigpy.types as t
 from zigpy.zcl.clusters import closures
 
 from homeassistant.core import callback
@@ -11,9 +11,6 @@ from homeassistant.core import callback
 from .. import registries
 from ..const import REPORT_CONFIG_IMMEDIATE, SIGNAL_ATTR_UPDATED
 from . import AttrReportConfig, ClientClusterHandler, ClusterHandler
-
-if TYPE_CHECKING:
-    from ..endpoint import Endpoint
 
 
 @registries.ZIGBEE_CLUSTER_HANDLER_REGISTRY.register(closures.DoorLock.cluster_id)
@@ -136,6 +133,16 @@ class WindowCovering(ClusterHandler):
     _value_attribute_tilt = (
         closures.WindowCovering.AttributeDefs.current_position_tilt_percentage.id
     )
+
+    class Mode(t.bitmap8):
+        """Mode bitmap."""
+
+        Inverted = 0b0000_0001
+        Calibration_Mode = 0b0000_0010
+        Maintenance_Mode = 0b0000_0100
+        Leds_On = 0b0000_1000
+
+    _value_attribute = 8
     REPORT_CONFIG = (
         AttrReportConfig(
             attr="current_position_lift_percentage", config=REPORT_CONFIG_IMMEDIATE
@@ -145,13 +152,9 @@ class WindowCovering(ClusterHandler):
         ),
     )
 
-    def __init__(self, cluster: zigpy.zcl.Cluster, endpoint: Endpoint) -> None:
-        """Initialize WindowCovering cluster handler."""
-        super().__init__(cluster, endpoint)
-
-        if self.cluster.endpoint.model == "lumi.curtain.agl001":
-            self.ZCL_INIT_ATTRS = self.ZCL_INIT_ATTRS.copy()
-            self.ZCL_INIT_ATTRS["window_covering_mode"] = True
+    ZCL_INIT_ATTRS = {
+        "window_covering_mode": False,
+    }
 
     async def async_update(self):
         """Retrieve latest state."""
@@ -189,3 +192,21 @@ class WindowCovering(ClusterHandler):
             self.async_send_signal(
                 f"{self.unique_id}_{SIGNAL_ATTR_UPDATED}", attrid, attr_name, value
             )
+
+    @property
+    def inverted(self):
+        """Return true if the window covering is inverted."""
+        window_covering_mode = self.cluster.get("window_covering_mode")
+        if window_covering_mode is not None:
+            return WindowCovering.Mode.Inverted in WindowCovering.Mode(
+                window_covering_mode
+            )
+        return False
+
+    @property
+    def current_position_lift_percentage(self):
+        """Return the current position of the window covering."""
+        result = self.cluster.get("current_position_lift_percentage")
+        if result is not None:
+            return result
+        return 0
