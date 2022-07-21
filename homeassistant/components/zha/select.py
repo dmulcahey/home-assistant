@@ -652,3 +652,19 @@ class AqaraThermostatPreset(ZCLEnumSelectEntity):
     _attribute_name = "preset"
     _enum = AqaraThermostatPresetMode
     _attr_translation_key: str = "preset"
+
+
+class AqaraE1HookState(types.enum8):
+    """Aqara hook state."""
+
+    Open = 0x03
+    Closed = 0x00
+    Stopped = 0x02
+
+
+@CONFIG_DIAGNOSTIC_MATCH(channel_names="opple_cluster", models={"lumi.curtain.agl001"})
+class AqaraCurtainHookState(ZCLEnumSelectEntity, id_suffix="hook_state"):
+    """Representation of a ZHA curtain mode configuration entity."""
+
+    _select_attr = "hook_state"
+    _enum = AqaraE1HookState
