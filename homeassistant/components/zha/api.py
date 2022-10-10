@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import enum
 import logging
 from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar, cast
 
@@ -74,6 +75,7 @@ from .core.helpers import (
     convert_install_code,
     get_matched_clusters,
     qr_to_install_code,
+    schema_type_to_vol,
 )
 
 if TYPE_CHECKING:
@@ -684,6 +686,8 @@ async def websocket_device_cluster_attributes(
     hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
 ) -> None:
     """Return a list of cluster attributes."""
+    import voluptuous_serialize  # pylint: disable=import-outside-toplevel
+
     zha_gateway: ZHAGateway = hass.data[DATA_ZHA][DATA_ZHA_GATEWAY]
     ieee: EUI64 = msg[ATTR_IEEE]
     endpoint_id: int = msg[ATTR_ENDPOINT_ID]
@@ -698,7 +702,19 @@ async def websocket_device_cluster_attributes(
         )
         if attributes is not None:
             for attr_id, attr in attributes.items():
-                cluster_attributes.append({ID: attr_id, ATTR_NAME: attr.name})
+                cluster_attributes.append(
+                    {
+                        ID: attr_id,
+                        ATTR_NAME: attr.name,
+                        "access": attr.access,
+                        "schema": voluptuous_serialize.convert(
+                            vol.Schema(
+                                {vol.Required(attr.name): schema_type_to_vol(attr.type)}
+                            ),
+                            custom_serializer=cv.custom_serializer,
+                        ),
+                    }
+                )
     _LOGGER.debug(
         "Requested attributes for: %s: %s, %s: '%s', %s: %s, %s: %s",
         ATTR_CLUSTER_ID,
@@ -820,6 +836,22 @@ async def websocket_read_zigbee_cluster_attributes(
         success, failure = await cluster.read_attributes(
             [attribute], allow_cache=False, only_cache=False, manufacturer=manufacturer
         )
+        zcl_attr_def = cluster.attributes.get(attribute)
+        value = success.get(attribute)
+        if zcl_attr_def is not None and value is not None:
+            if issubclass(zcl_attr_def.type, enum.Flag) and len(
+                zcl_attr_def.type.__members__.keys()
+            ):
+                value = [
+                    key.replace("_", " ")
+                    for key, item in zcl_attr_def.type.__members__.items()
+                    if item in value
+                ]
+            elif issubclass(zcl_attr_def.type, enum.Enum):
+                if len(zcl_attr_def.type.__members__.keys()):
+                    value = zcl_attr_def.type(value).name.replace("_", " ")
+                else:
+                    value = int(value)
     _LOGGER.debug(
         "Read attribute for: %s: [%s] %s: [%s] %s: [%s] %s: [%s] %s: [%s] %s: [%s] %s: [%s],",
         ATTR_CLUSTER_ID,
@@ -837,7 +869,7 @@ async def websocket_read_zigbee_cluster_attributes(
         "failure",
         failure,
     )
-    connection.send_result(msg[ID], str(success.get(attribute)))
+    connection.send_result(msg[ID], value)
 
 
 @websocket_api.require_admin
