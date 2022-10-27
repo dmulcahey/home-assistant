@@ -495,13 +495,24 @@ class ZHADevice(LogMixin):
                 effect_variant=Identify.EffectVariant.Default,
             )
 
-    async def async_initialize(self, from_cache: bool = False) -> None:
+    async def async_initialize(
+        self, from_cache: bool = False, force: bool = False
+    ) -> None:
         """Initialize channels."""
-        self.debug("started initialization")
-        await self._channels.async_initialize(from_cache)
+        self.debug(
+            "started initialization: from_cache: %s - force: %s", from_cache, force
+        )
+        await self._channels.async_initialize(from_cache, force)
         self.debug("power source: %s", self.power_source)
         self.status = DeviceStatus.INITIALIZED
         self.debug("completed initialization")
+
+    async def async_reconfigure(self) -> None:
+        """Reconfigure the device."""
+        self.debug("started reconfiguration")
+        await self.async_configure()
+        await self.async_initialize(force=True)
+        self.debug("completed reconfiguration")
 
     @callback
     def async_cleanup_handles(self) -> None:

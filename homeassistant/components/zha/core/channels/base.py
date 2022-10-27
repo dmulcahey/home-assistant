@@ -33,6 +33,7 @@ from ..const import (
     REPORT_CONFIG_ATTR_PER_REQ,
     SIGNAL_ATTR_UPDATED,
     ZHA_CHANNEL_MSG,
+    ZHA_CHANNEL_MSG_ATTR_READ,
     ZHA_CHANNEL_MSG_BIND,
     ZHA_CHANNEL_MSG_CFG_RPT,
     ZHA_CHANNEL_MSG_DATA,
@@ -336,39 +337,66 @@ class ZigbeeChannel(LogMixin):
         self._status = ChannelStatus.CONFIGURED
 
     @retryable_req(delays=(1, 1, 3))
-    async def async_initialize(self, from_cache: bool) -> None:
+    async def async_initialize(self, from_cache: bool, force: bool = False) -> None:
         """Initialize channel."""
-        if not from_cache and self._ch_pool.skip_configuration:
+        if (not from_cache or force) and self._ch_pool.skip_configuration:
             self.debug("Skipping channel initialization")
             self._status = ChannelStatus.INITIALIZED
             return
 
-        self.debug("initializing channel: from_cache: %s", from_cache)
-        cached = [a for a, cached in self.ZCL_INIT_ATTRS.items() if cached]
-        uncached = [a for a, cached in self.ZCL_INIT_ATTRS.items() if not cached]
+        self.debug("initializing channel: from_cache: %s force: %s", from_cache, force)
+        cached = [
+            a for a, cached in self.ZCL_INIT_ATTRS.items() if cached and not force
+        ]
+        uncached = [
+            a for a, cached in self.ZCL_INIT_ATTRS.items() if not cached or force
+        ]
         uncached.extend([cfg["attr"] for cfg in self.REPORT_CONFIG])
 
+        results = {}
         if cached:
             self.debug("initializing cached channel attributes: %s", cached)
-            await self._get_attributes(
-                True, cached, from_cache=True, only_cache=from_cache
+            results.update(
+                await self._get_attributes(
+                    True, cached, from_cache=True, only_cache=from_cache
+                )
             )
         if uncached:
             self.debug(
-                "initializing uncached channel attributes: %s - from cache[%s]",
+                "initializing uncached channel attributes: %s - from cache[%s] - force[%s]",
                 uncached,
                 from_cache,
+                force,
             )
-            await self._get_attributes(
-                True, uncached, from_cache=from_cache, only_cache=from_cache
+            results.update(
+                await self._get_attributes(
+                    True, uncached, from_cache=from_cache, only_cache=from_cache
+                )
             )
 
         ch_specific_init = getattr(self, "async_initialize_channel_specific", None)
         if ch_specific_init:
-            self.debug("Performing channel specific initialization: %s", uncached)
-            await ch_specific_init(from_cache=from_cache)
+            use_cache = from_cache and not force
+            self.debug(
+                "Performing channel specific initialization - from cache: %s", use_cache
+            )
+            result = await ch_specific_init(from_cache=use_cache)
+            if result:
+                results.update(result)
 
-        self.debug("finished channel initialization")
+        async_dispatcher_send(
+            self._ch_pool.hass,
+            ZHA_CHANNEL_MSG,
+            {
+                ATTR_TYPE: ZHA_CHANNEL_MSG_ATTR_READ,
+                ZHA_CHANNEL_MSG_DATA: {
+                    "cluster_name": self.cluster.name,
+                    "cluster_id": self.cluster.cluster_id,
+                    "attributes": results,
+                },
+            },
+        )
+        self.debug("finished channel initialization - results: %s", results)
         self._status = ChannelStatus.INITIALIZED
 
     @callback

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine
 from typing import TYPE_CHECKING, Any
 
 import zigpy.exceptions
@@ -527,13 +526,15 @@ class PowerConfigurationChannel(ZigbeeChannel):
         ),
     )
 
-    def async_initialize_channel_specific(self, from_cache: bool) -> Coroutine:
+    async def async_initialize_channel_specific(
+        self, from_cache: bool
+    ) -> dict[int | str, Any]:
         """Initialize channel specific attrs."""
         attributes = [
             "battery_size",
             "battery_quantity",
         ]
-        return self.get_attributes(
+        return await self.get_attributes(
             attributes, from_cache=from_cache, only_cache=from_cache
         )
 

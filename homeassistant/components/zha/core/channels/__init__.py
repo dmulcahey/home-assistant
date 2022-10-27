@@ -117,12 +117,14 @@ class Channels:
             return
         self._pools.append(ChannelPool.new(self, ep_id))
 
-    async def async_initialize(self, from_cache: bool = False) -> None:
+    async def async_initialize(
+        self, from_cache: bool = False, force: bool = False
+    ) -> None:
         """Initialize claimed channels."""
         await self.zdo_channel.async_initialize(from_cache)
         self.zdo_channel.debug("'async_initialize' stage succeeded")
         await asyncio.gather(
-            *(pool.async_initialize(from_cache) for pool in self.pools)
+            *(pool.async_initialize(from_cache, force) for pool in self.pools)
         )
 
     async def async_configure(self) -> None:
@@ -322,9 +324,11 @@ class ChannelPool:
                 channel = channel_class(cluster, self)
                 self.client_channels[channel.id] = channel
 
-    async def async_initialize(self, from_cache: bool = False) -> None:
+    async def async_initialize(
+        self, from_cache: bool = False, force: bool = False
+    ) -> None:
         """Initialize claimed channels."""
-        await self._execute_channel_tasks("async_initialize", from_cache)
+        await self._execute_channel_tasks("async_initialize", from_cache, force)
 
     async def async_configure(self) -> None:
         """Configure claimed channels."""

@@ -610,7 +610,7 @@ async def websocket_reconfigure_node(
 
     _LOGGER.debug("Reconfiguring node with ieee_address: %s", ieee)
     assert device
-    hass.async_create_task(device.async_configure())
+    hass.async_create_task(device.async_reconfigure())
 
 
 @websocket_api.require_admin
