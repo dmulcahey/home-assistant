@@ -231,7 +231,10 @@ class ZHAGateway:
 
         _LOGGER.debug("Initializing all devices from Zigpy cache")
         await asyncio.gather(
-            *(dev.async_initialize(from_cache=True) for dev in self.devices.values())
+            *(
+                dev.async_initialize(from_cache=True, suppress_events=True)
+                for dev in self.devices.values()
+            )
         )
 
         async def fetch_updated_state() -> None:
@@ -239,7 +242,7 @@ class ZHAGateway:
             _LOGGER.debug("Fetching current state for mains powered devices")
             await asyncio.gather(
                 *(
-                    dev.async_initialize(from_cache=False)
+                    dev.async_initialize(from_cache=False, suppress_events=True)
                     for dev in self.devices.values()
                     if dev.is_mains_powered
                 )

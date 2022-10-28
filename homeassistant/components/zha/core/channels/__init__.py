@@ -118,7 +118,10 @@ class Channels:
         self._pools.append(ChannelPool.new(self, ep_id))
 
     async def async_initialize(
-        self, from_cache: bool = False, force: bool = False
+        self,
+        from_cache: bool = False,
+        force: bool = False,
+        suppress_events: bool = False,
     ) -> None:
         """Initialize claimed channels."""
         await self.zdo_channel.async_initialize(from_cache)
@@ -126,26 +129,28 @@ class Channels:
         await asyncio.gather(
             *(pool.async_initialize(from_cache, force) for pool in self.pools)
         )
-        async_dispatcher_send(
-            self.zha_device.hass,
-            const.ZHA_CHANNEL_MSG,
-            {
-                const.ATTR_TYPE: const.ZHA_CHANNEL_INIT_DONE,
-            },
-        )
+        if not suppress_events:
+            async_dispatcher_send(
+                self.zha_device.hass,
+                const.ZHA_CHANNEL_MSG,
+                {
+                    const.ATTR_TYPE: const.ZHA_CHANNEL_INIT_DONE,
+                },
+            )
 
-    async def async_configure(self) -> None:
+    async def async_configure(self, suppress_events: bool = False) -> None:
         """Configure claimed channels."""
         await self.zdo_channel.async_configure()
         self.zdo_channel.debug("'async_configure' stage succeeded")
         await asyncio.gather(*(pool.async_configure() for pool in self.pools))
-        async_dispatcher_send(
-            self.zha_device.hass,
-            const.ZHA_CHANNEL_MSG,
-            {
-                const.ATTR_TYPE: const.ZHA_CHANNEL_CFG_DONE,
-            },
-        )
+        if not suppress_events:
+            async_dispatcher_send(
+                self.zha_device.hass,
+                const.ZHA_CHANNEL_MSG,
+                {
+                    const.ATTR_TYPE: const.ZHA_CHANNEL_CFG_DONE,
+                },
+            )
 
     @callback
     def async_new_entity(

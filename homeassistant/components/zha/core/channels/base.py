@@ -179,7 +179,7 @@ class ZigbeeChannel(LogMixin):
         """Send a signal through hass dispatcher."""
         self._ch_pool.async_send_signal(signal, *args)
 
-    async def bind(self):
+    async def bind(self, suppress_events: bool = False) -> None:
         """Bind a zigbee cluster.
 
         This also swallows ZigbeeException exceptions that are thrown when
@@ -188,36 +188,38 @@ class ZigbeeChannel(LogMixin):
         try:
             res = await self.cluster.bind()
             self.debug("bound '%s' cluster: %s", self.cluster.ep_attribute, res[0])
-            async_dispatcher_send(
-                self._ch_pool.hass,
-                ZHA_CHANNEL_MSG,
-                {
-                    ATTR_TYPE: ZHA_CHANNEL_MSG_BIND,
-                    ZHA_CHANNEL_MSG_DATA: {
-                        "cluster_name": self.cluster.name,
-                        "cluster_id": self.cluster.cluster_id,
-                        "success": res[0] == 0,
+            if not suppress_events:
+                async_dispatcher_send(
+                    self._ch_pool.hass,
+                    ZHA_CHANNEL_MSG,
+                    {
+                        ATTR_TYPE: ZHA_CHANNEL_MSG_BIND,
+                        ZHA_CHANNEL_MSG_DATA: {
+                            "cluster_name": self.cluster.name,
+                            "cluster_id": self.cluster.cluster_id,
+                            "success": res[0] == 0,
+                        },
                     },
-                },
-            )
+                )
         except (zigpy.exceptions.ZigbeeException, asyncio.TimeoutError) as ex:
             self.debug(
                 "Failed to bind '%s' cluster: %s", self.cluster.ep_attribute, str(ex)
             )
-            async_dispatcher_send(
-                self._ch_pool.hass,
-                ZHA_CHANNEL_MSG,
-                {
-                    ATTR_TYPE: ZHA_CHANNEL_MSG_BIND,
-                    ZHA_CHANNEL_MSG_DATA: {
-                        "cluster_name": self.cluster.name,
-                        "cluster_id": self.cluster.cluster_id,
-                        "success": False,
+            if not suppress_events:
+                async_dispatcher_send(
+                    self._ch_pool.hass,
+                    ZHA_CHANNEL_MSG,
+                    {
+                        ATTR_TYPE: ZHA_CHANNEL_MSG_BIND,
+                        ZHA_CHANNEL_MSG_DATA: {
+                            "cluster_name": self.cluster.name,
+                            "cluster_id": self.cluster.cluster_id,
+                            "success": False,
+                        },
                     },
-                },
-            )
+                )
 
-    async def configure_reporting(self) -> None:
+    async def configure_reporting(self, suppress_events: bool = False) -> None:
         """Configure attribute reporting for a cluster.
 
         This also swallows ZigbeeException exceptions that are thrown when
@@ -265,18 +267,19 @@ class ZigbeeChannel(LogMixin):
                 rest[REPORT_CONFIG_ATTR_PER_REQ:],
             )
 
-        async_dispatcher_send(
-            self._ch_pool.hass,
-            ZHA_CHANNEL_MSG,
-            {
-                ATTR_TYPE: ZHA_CHANNEL_MSG_CFG_RPT,
-                ZHA_CHANNEL_MSG_DATA: {
-                    "cluster_name": self.cluster.name,
-                    "cluster_id": self.cluster.cluster_id,
-                    "attributes": event_data,
+        if not suppress_events:
+            async_dispatcher_send(
+                self._ch_pool.hass,
+                ZHA_CHANNEL_MSG,
+                {
+                    ATTR_TYPE: ZHA_CHANNEL_MSG_CFG_RPT,
+                    ZHA_CHANNEL_MSG_DATA: {
+                        "cluster_name": self.cluster.name,
+                        "cluster_id": self.cluster.cluster_id,
+                        "attributes": event_data,
+                    },
                 },
-            },
-        )
+            )
 
     def _configure_reporting_status(
         self, attrs: dict[int | str, tuple[int, int, float | int]], res: list | tuple
@@ -306,27 +309,31 @@ class ZigbeeChannel(LogMixin):
             if r.status != Status.SUCCESS
         ]
         attributes = {self.cluster.attributes.get(r, [r])[0] for r in attrs}
-        self.debug(
-            "Successfully configured reporting for '%s' on '%s' cluster",
-            attributes - set(failed),
-            self.name,
-        )
-        self.debug(
-            "Failed to configure reporting for '%s' on '%s' cluster: %s",
-            failed,
-            self.name,
-            res,
-        )
+        success = attributes - set(failed)
+        if success:
+            self.debug(
+                "Successfully configured reporting for '%s' on '%s' cluster: %s",
+                success,
+                self.name,
+                res,
+            )
+        if failed:
+            self.debug(
+                "Failed to configure reporting for '%s' on '%s' cluster: %s",
+                failed,
+                self.name,
+                res,
+            )
 
-    async def async_configure(self) -> None:
+    async def async_configure(self, suppress_events: bool = False) -> None:
         """Set cluster binding and attribute reporting."""
         if not self._ch_pool.skip_configuration:
             if self.BIND:
                 self.debug("Performing cluster binding")
-                await self.bind()
+                await self.bind(suppress_events)
             if self.cluster.is_server:
                 self.debug("Configuring cluster attribute reporting")
-                await self.configure_reporting()
+                await self.configure_reporting(suppress_events)
             ch_specific_cfg = getattr(self, "async_configure_channel_specific", None)
             if ch_specific_cfg:
                 self.debug("Performing channel specific configuration")
@@ -337,7 +344,9 @@ class ZigbeeChannel(LogMixin):
         self._status = ChannelStatus.CONFIGURED
 
     @retryable_req(delays=(1, 1, 3))
-    async def async_initialize(self, from_cache: bool, force: bool = False) -> None:
+    async def async_initialize(
+        self, from_cache: bool, force: bool = False, suppress_events: bool = False
+    ) -> None:
         """Initialize channel."""
         if (not from_cache or force) and self._ch_pool.skip_configuration:
             self.debug("Skipping channel initialization")
@@ -384,7 +393,7 @@ class ZigbeeChannel(LogMixin):
             if result:
                 results.update(result)
 
-        if results:
+        if results and not suppress_events:
             async_dispatcher_send(
                 self._ch_pool.hass,
                 ZHA_CHANNEL_MSG,

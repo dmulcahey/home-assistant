@@ -473,7 +473,7 @@ class ZHADevice(LogMixin):
             ATTR_SIGNATURE: self.zigbee_signature,
         }
 
-    async def async_configure(self) -> None:
+    async def async_configure(self, suppress_events: bool = False) -> None:
         """Configure the device."""
         should_identify = async_get_zha_config_value(
             self._zha_gateway.config_entry,
@@ -482,7 +482,7 @@ class ZHADevice(LogMixin):
             True,
         )
         self.debug("started configuration")
-        await self._channels.async_configure()
+        await self._channels.async_configure(suppress_events)
         self.debug("completed configuration")
 
         if (
@@ -496,13 +496,16 @@ class ZHADevice(LogMixin):
             )
 
     async def async_initialize(
-        self, from_cache: bool = False, force: bool = False
+        self,
+        from_cache: bool = False,
+        force: bool = False,
+        suppress_events: bool = False,
     ) -> None:
         """Initialize channels."""
         self.debug(
             "started initialization: from_cache: %s - force: %s", from_cache, force
         )
-        await self._channels.async_initialize(from_cache, force)
+        await self._channels.async_initialize(from_cache, force, suppress_events)
         self.debug("power source: %s", self.power_source)
         self.status = DeviceStatus.INITIALIZED
         self.debug("completed initialization")
