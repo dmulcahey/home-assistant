@@ -384,18 +384,20 @@ class ZigbeeChannel(LogMixin):
             if result:
                 results.update(result)
 
-        async_dispatcher_send(
-            self._ch_pool.hass,
-            ZHA_CHANNEL_MSG,
-            {
-                ATTR_TYPE: ZHA_CHANNEL_MSG_ATTR_READ,
-                ZHA_CHANNEL_MSG_DATA: {
-                    "cluster_name": self.cluster.name,
-                    "cluster_id": self.cluster.cluster_id,
-                    "attributes": results,
+        if results:
+            async_dispatcher_send(
+                self._ch_pool.hass,
+                ZHA_CHANNEL_MSG,
+                {
+                    ATTR_TYPE: ZHA_CHANNEL_MSG_ATTR_READ,
+                    ZHA_CHANNEL_MSG_DATA: {
+                        "cluster_name": self.cluster.name,
+                        "cluster_id": self.cluster.cluster_id,
+                        "attributes": results,
+                    },
                 },
-            },
-        )
+            )
+
         self.debug("finished channel initialization - results: %s", results)
         self._status = ChannelStatus.INITIALIZED
 
