@@ -126,6 +126,13 @@ class Channels:
         await asyncio.gather(
             *(pool.async_initialize(from_cache, force) for pool in self.pools)
         )
+        async_dispatcher_send(
+            self.zha_device.hass,
+            const.ZHA_CHANNEL_MSG,
+            {
+                const.ATTR_TYPE: const.ZHA_CHANNEL_INIT_DONE,
+            },
+        )
 
     async def async_configure(self) -> None:
         """Configure claimed channels."""

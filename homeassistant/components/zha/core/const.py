@@ -381,6 +381,7 @@ ZHA_CHANNEL_MSG_CFG_RPT = "zha_channel_configure_reporting"
 ZHA_CHANNEL_MSG_ATTR_READ = "zha_channel_attributes_read"
 ZHA_CHANNEL_MSG_DATA = "zha_channel_msg_data"
 ZHA_CHANNEL_CFG_DONE = "zha_channel_cfg_done"
+ZHA_CHANNEL_INIT_DONE = "zha_channel_init_done"
 ZHA_CHANNEL_READS_PER_REQ = 5
 ZHA_EVENT = "zha_event"
 ZHA_GW_MSG = "zha_gateway_message"
