@@ -55,6 +55,7 @@ from .const import (
     DEBUG_LEVELS,
     DEBUG_RELAY_LOGGERS,
     DEFAULT_DATABASE_NAME,
+    DEVICE_INFO,
     DEVICE_PAIRING_STATUS,
     DOMAIN,
     SIGNAL_ADD_ENTITIES,
@@ -66,7 +67,6 @@ from .const import (
     UNKNOWN_MODEL,
     ZHA_GW_MSG,
     ZHA_GW_MSG_DEVICE_FULL_INIT,
-    ZHA_GW_MSG_DEVICE_INFO,
     ZHA_GW_MSG_DEVICE_JOINED,
     ZHA_GW_MSG_DEVICE_REMOVED,
     ZHA_GW_MSG_GROUP_ADDED,
@@ -262,7 +262,7 @@ class ZHAGateway:
             ZHA_GW_MSG,
             {
                 ATTR_TYPE: ZHA_GW_MSG_DEVICE_JOINED,
-                ZHA_GW_MSG_DEVICE_INFO: {
+                DEVICE_INFO: {
                     ATTR_NWK: device.nwk,
                     ATTR_IEEE: str(device.ieee),
                     DEVICE_PAIRING_STATUS: DevicePairingStatus.PAIRED.name,
@@ -278,7 +278,7 @@ class ZHAGateway:
             ZHA_GW_MSG,
             {
                 ATTR_TYPE: ZHA_GW_MSG_RAW_INIT,
-                ZHA_GW_MSG_DEVICE_INFO: {
+                DEVICE_INFO: {
                     ATTR_NWK: device.nwk,
                     ATTR_IEEE: str(device.ieee),
                     DEVICE_PAIRING_STATUS: DevicePairingStatus.INTERVIEW_COMPLETE.name,
@@ -381,7 +381,7 @@ class ZHAGateway:
                     ZHA_GW_MSG,
                     {
                         ATTR_TYPE: ZHA_GW_MSG_DEVICE_REMOVED,
-                        ZHA_GW_MSG_DEVICE_INFO: device_info,
+                        DEVICE_INFO: device_info,
                     },
                 )
 
@@ -589,7 +589,7 @@ class ZHAGateway:
             ZHA_GW_MSG,
             {
                 ATTR_TYPE: ZHA_GW_MSG_DEVICE_FULL_INIT,
-                ZHA_GW_MSG_DEVICE_INFO: device_info,
+                DEVICE_INFO: device_info,
             },
         )
 
@@ -603,7 +603,7 @@ class ZHAGateway:
             ZHA_GW_MSG,
             {
                 ATTR_TYPE: ZHA_GW_MSG_DEVICE_FULL_INIT,
-                ZHA_GW_MSG_DEVICE_INFO: device_info,
+                DEVICE_INFO: device_info,
             },
         )
         await zha_device.async_initialize(from_cache=False)
@@ -624,7 +624,7 @@ class ZHAGateway:
             ZHA_GW_MSG,
             {
                 ATTR_TYPE: ZHA_GW_MSG_DEVICE_FULL_INIT,
-                ZHA_GW_MSG_DEVICE_INFO: device_info,
+                DEVICE_INFO: device_info,
             },
         )
         # force async_initialize() to fire so don't explicitly call it
