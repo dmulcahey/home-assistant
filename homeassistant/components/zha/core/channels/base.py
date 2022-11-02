@@ -25,6 +25,7 @@ from ..const import (
     ATTR_ATTRIBUTE_ID,
     ATTR_ATTRIBUTE_NAME,
     ATTR_CLUSTER_ID,
+    ATTR_DEVICE_IEEE,
     ATTR_PARAMS,
     ATTR_TYPE,
     ATTR_UNIQUE_ID,
@@ -198,6 +199,7 @@ class ZigbeeChannel(LogMixin):
                             "cluster_name": self.cluster.name,
                             "cluster_id": self.cluster.cluster_id,
                             "success": res[0] == 0,
+                            ATTR_DEVICE_IEEE: str(self.cluster.endpoint.device.ieee),
                         },
                     },
                 )
@@ -215,6 +217,7 @@ class ZigbeeChannel(LogMixin):
                             "cluster_name": self.cluster.name,
                             "cluster_id": self.cluster.cluster_id,
                             "success": False,
+                            ATTR_DEVICE_IEEE: str(self.cluster.endpoint.device.ieee),
                         },
                     },
                 )
@@ -277,6 +280,7 @@ class ZigbeeChannel(LogMixin):
                         "cluster_name": self.cluster.name,
                         "cluster_id": self.cluster.cluster_id,
                         "attributes": event_data,
+                        ATTR_DEVICE_IEEE: str(self.cluster.endpoint.device.ieee),
                     },
                 },
             )
@@ -403,6 +407,7 @@ class ZigbeeChannel(LogMixin):
                         "cluster_name": self.cluster.name,
                         "cluster_id": self.cluster.cluster_id,
                         "attributes": results,
+                        ATTR_DEVICE_IEEE: str(self.cluster.endpoint.device.ieee),
                     },
                 },
             )

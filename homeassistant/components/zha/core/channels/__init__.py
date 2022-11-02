@@ -135,6 +135,9 @@ class Channels:
                 const.ZHA_CHANNEL_MSG,
                 {
                     const.ATTR_TYPE: const.ZHA_CHANNEL_INIT_DONE,
+                    const.ZHA_CHANNEL_MSG_DATA: {
+                        const.ATTR_DEVICE_IEEE: str(self.zha_device.ieee),
+                    },
                 },
             )
 
@@ -149,6 +152,9 @@ class Channels:
                 const.ZHA_CHANNEL_MSG,
                 {
                     const.ATTR_TYPE: const.ZHA_CHANNEL_CFG_DONE,
+                    const.ZHA_CHANNEL_MSG_DATA: {
+                        const.ATTR_DEVICE_IEEE: str(self.zha_device.ieee),
+                    },
                 },
             )
 
