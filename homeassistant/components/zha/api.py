@@ -12,6 +12,7 @@ from zigpy.backups import NetworkBackup
 from zigpy.config.validators import cv_boolean
 from zigpy.types.named import EUI64
 from zigpy.zcl.clusters.security import IasAce
+from zigpy.zcl.foundation import ZCLAttributeAccess
 import zigpy.zdo.types as zdo_types
 
 from homeassistant.components import websocket_api
@@ -706,7 +707,12 @@ async def websocket_device_cluster_attributes(
                     {
                         ID: attr_id,
                         ATTR_NAME: attr.name,
-                        "access": attr.access,
+                        "access": ",".join(
+                            access.name
+                            for access in ZCLAttributeAccess.__members__.values()
+                            if access in attr.access
+                            and access != ZCLAttributeAccess.NONE
+                        ),
                         "schema": voluptuous_serialize.convert(
                             vol.Schema(
                                 {vol.Required(attr.name): schema_type_to_vol(attr.type)}
