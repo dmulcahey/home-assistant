@@ -30,6 +30,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.exceptions import IntegrationError
 from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+)
 
 from .const import (
     CLUSTER_TYPE_IN,
@@ -148,7 +153,14 @@ def schema_type_to_vol(field_type: Any) -> Any:
         or issubclass(field_type, enum.Enum)
     ):
         return vol.All(
-            vol.Coerce(int), vol.Range(field_type.min_value, field_type.max_value)
+            NumberSelector(
+                NumberSelectorConfig(
+                    mode=NumberSelectorMode.BOX,
+                    min=field_type.min_value,
+                    max=field_type.max_value,
+                )
+            ),
+            vol.Coerce(int),
         )
     return str
 
