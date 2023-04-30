@@ -23,6 +23,7 @@ from .api import (
     async_change_channel,
     async_get_active_network_settings,
     async_get_radio_type,
+    async_scan_channels,
 )
 from .core.const import (
     ATTR_ARGS,
@@ -1226,6 +1227,17 @@ async def websocket_change_channel(
     connection.send_result(msg[ID])
 
 
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required(TYPE): "zha/network/scan_channels"})
+@websocket_api.async_response
+async def websocket_scan_channels(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Scan Zigbee channels for energy readings."""
+    channel_data = await async_scan_channels(hass)
+    connection.send_result(msg[ID], channel_data)
+
+
 @callback
 def async_load_api(hass: HomeAssistant) -> None:
     """Set up the web socket API."""
@@ -1550,6 +1562,7 @@ def async_load_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_create_network_backup)
     websocket_api.async_register_command(hass, websocket_restore_network_backup)
     websocket_api.async_register_command(hass, websocket_change_channel)
+    websocket_api.async_register_command(hass, websocket_scan_channels)
 
 
 @callback

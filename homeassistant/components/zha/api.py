@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from zigpy.backups import NetworkBackup
 from zigpy.config import CONF_DEVICE, CONF_DEVICE_PATH
@@ -10,11 +10,13 @@ from zigpy.types import Channels
 from zigpy.util import pick_optimal_channel
 
 from .core.const import (
+    CHANNEL_ENERGIES,
     CONF_RADIO_TYPE,
     DATA_ZHA,
     DATA_ZHA_CONFIG,
     DATA_ZHA_GATEWAY,
     DOMAIN,
+    OPTIMAL_CHANNEL,
     RadioType,
 )
 from .core.gateway import ZHAGateway
@@ -124,11 +126,26 @@ async def async_change_channel(
     app = zha_gateway.application_controller
 
     if new_channel == "auto":
-        channel_energy = await app.energy_scan(
-            channels=Channels.ALL_CHANNELS,
-            duration_exp=4,
-            count=1,
-        )
-        new_channel = pick_optimal_channel(channel_energy)
+        channel_data = await async_scan_channels(hass)
+        new_channel = cast(int, channel_data[OPTIMAL_CHANNEL])
 
     await app.move_network_to_channel(new_channel)
+
+
+async def async_scan_channels(hass: HomeAssistant) -> dict[str, dict[int, float] | int]:
+    """Scan Zigbee channels."""
+
+    zha_gateway: ZHAGateway = _get_gateway(hass)
+    app = zha_gateway.application_controller
+
+    channel_energies: dict[int, float] = await app.energy_scan(
+        channels=Channels.ALL_CHANNELS,
+        duration_exp=4,
+        count=1,
+    )
+    optimal_channel: int = pick_optimal_channel(channel_energies)
+
+    return {
+        CHANNEL_ENERGIES: channel_energies,
+        OPTIMAL_CHANNEL: optimal_channel,
+    }

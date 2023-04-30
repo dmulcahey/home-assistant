@@ -122,6 +122,9 @@ PLATFORMS = (
     Platform.SWITCH,
 )
 
+CHANNEL_ENERGIES = "channel_energies"
+OPTIMAL_CHANNEL = "optimal_channel"
+
 CONF_ALARM_MASTER_CODE = "alarm_master_code"
 CONF_ALARM_FAILED_TRIES = "alarm_failed_tries"
 CONF_ALARM_ARM_REQUIRES_CODE = "alarm_arm_requires_code"
