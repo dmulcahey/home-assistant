@@ -14,7 +14,7 @@ import traceback
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from zigpy.application import ControllerApplication
-from zigpy.config import CONF_DEVICE
+from zigpy.config import CONF_DEVICE, CONF_SOURCE_ROUTING
 import zigpy.device
 import zigpy.endpoint
 import zigpy.exceptions
@@ -24,11 +24,12 @@ from zigpy.types.named import EUI64
 from homeassistant import __path__ as HOMEASSISTANT_PATH
 from homeassistant.components.system_log import LogEntry, _figure_out_source
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import ConfigType
 
 from . import discovery
@@ -149,6 +150,7 @@ class ZHAGateway:
         self.config_entry = config_entry
         self._unsubs: list[Callable[[], None]] = []
         self.initialized: bool = False
+        self._delayed_init_handle: CALLBACK_TYPE | None = None
 
     def get_application_controller_data(self) -> tuple[ControllerApplication, dict]:
         """Get an uninitialized instance of a zigpy `ControllerApplication`."""
@@ -284,10 +286,34 @@ class ZHAGateway:
                 )
             )
 
-        # background the fetching of state for mains powered devices
-        self.config_entry.async_create_background_task(
-            self._hass, fetch_updated_state(), "zha.gateway-fetch_updated_state"
-        )
+        def update_mains_devices_state(*_: Any) -> None:
+            """Update state of mains powered devices."""
+            # background the fetching of state for mains powered devices
+            _LOGGER.debug(
+                "Creating background task to update the state for mains powered devices"
+            )
+            self.config_entry.async_create_background_task(
+                self._hass,
+                fetch_updated_state(),
+                "zha.gateway-fetch_updated_state",
+            )
+
+        source_routing = self._config.get(CONF_ZIGPY, {}).get(CONF_SOURCE_ROUTING)
+
+        if source_routing:
+            # give MTORR a chance to get some routes to the coordinator
+            _LOGGER.debug(
+                "Source routing is in use. Delaying the update of mains powered devices"
+            )
+            status = await self.application_controller._ezsp.sendManyToOneRouteRequest(
+                0xFFF9, 30
+            )
+            _LOGGER.debug("MTORR broadcast status %s", status)
+            self._delayed_init_handle = async_call_later(
+                self._hass, 60, update_mains_devices_state
+            )
+        else:
+            update_mains_devices_state()
 
     def device_joined(self, device: zigpy.device.Device) -> None:
         """Handle device joined.
