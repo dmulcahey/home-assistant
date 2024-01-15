@@ -470,25 +470,6 @@ class AqaraT2RelayDecoupledMode(ZCLEnumSelectEntity):
     _attr_translation_key: str = "decoupled_mode"
 
 
-class AqaraE1ReverseDirection(types.enum8):
-    """Aqara curtain reversal."""
-
-    Normal = 0x00
-    Inverted = 0x01
-
-
-@CONFIG_DIAGNOSTIC_MATCH(
-    cluster_handler_names="window_covering", models={"lumi.curtain.agl001"}
-)
-class AqaraCurtainMode(ZCLEnumSelectEntity):
-    """Representation of a ZHA curtain mode configuration entity."""
-
-    _unique_id_suffix = "window_covering_mode"
-    _attribute_name = "window_covering_mode"
-    _enum = AqaraE1ReverseDirection
-    _attr_translation_key: str = "window_covering_mode"
-
-
 class InovelliOutputMode(types.enum1):
     """Inovelli output mode."""
 
@@ -652,19 +633,3 @@ class AqaraThermostatPreset(ZCLEnumSelectEntity):
     _attribute_name = "preset"
     _enum = AqaraThermostatPresetMode
     _attr_translation_key: str = "preset"
-
-
-class AqaraE1HookState(types.enum8):
-    """Aqara hook state."""
-
-    Open = 0x03
-    Closed = 0x00
-    Stopped = 0x02
-
-
-@CONFIG_DIAGNOSTIC_MATCH(channel_names="opple_cluster", models={"lumi.curtain.agl001"})
-class AqaraCurtainHookState(ZCLEnumSelectEntity, id_suffix="hook_state"):
-    """Representation of a ZHA curtain mode configuration entity."""
-
-    _select_attr = "hook_state"
-    _enum = AqaraE1HookState

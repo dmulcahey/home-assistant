@@ -127,6 +127,21 @@ class WindowCoveringClient(ClientClusterHandler):
 class WindowCovering(ClusterHandler):
     """Window cluster handler."""
 
+    REPORT_CONFIG = (
+        AttrReportConfig(
+            attr="current_position_lift_percentage", config=REPORT_CONFIG_IMMEDIATE
+        ),
+        AttrReportConfig(
+            attr="current_position_tilt_percentage", config=REPORT_CONFIG_IMMEDIATE
+        ),
+    )
+
+    ZCL_INIT_ATTRS = {
+        "window_covering_type": True,
+        "window_covering_mode": True,
+        "config_status": True,
+    }
+
     _value_attribute_lift = (
         closures.WindowCovering.AttributeDefs.current_position_lift_percentage.id
     )
@@ -141,20 +156,6 @@ class WindowCovering(ClusterHandler):
         Calibration_Mode = 0b0000_0010
         Maintenance_Mode = 0b0000_0100
         Leds_On = 0b0000_1000
-
-    _value_attribute = 8
-    REPORT_CONFIG = (
-        AttrReportConfig(
-            attr="current_position_lift_percentage", config=REPORT_CONFIG_IMMEDIATE
-        ),
-        AttrReportConfig(
-            attr="current_position_tilt_percentage", config=REPORT_CONFIG_IMMEDIATE
-        ),
-    )
-
-    ZCL_INIT_ATTRS = {
-        "window_covering_mode": False,
-    }
 
     async def async_update(self):
         """Retrieve latest state."""
@@ -196,10 +197,11 @@ class WindowCovering(ClusterHandler):
     @property
     def inverted(self):
         """Return true if the window covering is inverted."""
-        window_covering_mode = self.cluster.get("window_covering_mode")
-        if window_covering_mode is not None:
-            return WindowCovering.Mode.Inverted in WindowCovering.Mode(
-                window_covering_mode
+        config_status = self.cluster.get("config_status")
+        if config_status is not None:
+            return (
+                closures.ConfigStatus.Open_up_commands_reversed
+                in closures.ConfigStatus(config_status)
             )
         return False
 

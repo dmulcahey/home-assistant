@@ -79,7 +79,9 @@ class ZhaCover(ZhaEntity, CoverEntity):
     def __init__(self, unique_id, zha_device, cluster_handlers, **kwargs) -> None:
         """Init this sensor."""
         super().__init__(unique_id, zha_device, cluster_handlers, **kwargs)
-        self._cover_cluster_handler = self.cluster_handlers.get(CLUSTER_HANDLER_COVER)
+        cluster_handler = self.cluster_handlers.get(CLUSTER_HANDLER_COVER)
+        assert cluster_handler
+        self._cover_cluster_handler: ClusterHandler = cluster_handler
         self._current_position = (
             self._cover_cluster_handler.current_position_lift_percentage
         )
@@ -108,7 +110,7 @@ class ZhaCover(ZhaEntity, CoverEntity):
         """Return if the cover is closed."""
         if self.current_cover_position is None:
             return None
-        if self._cover_channel.inverted:
+        if self._cover_cluster_handler.inverted:
             return self.current_cover_position == 100
         return self.current_cover_position == 0
 

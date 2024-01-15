@@ -10,6 +10,8 @@ import random
 from typing import TYPE_CHECKING, Any, Self
 
 from zigpy import types
+from zigpy.zcl.clusters.closures import WindowCovering
+from zigpy.zcl.clusters.general import Basic
 
 from homeassistant.components.climate import HVACAction
 from homeassistant.components.sensor import (
@@ -95,6 +97,9 @@ CLUSTER_HANDLER_ST_HUMIDITY_CLUSTER = (
 )
 STRICT_MATCH = functools.partial(ZHA_ENTITIES.strict_match, Platform.SENSOR)
 MULTI_MATCH = functools.partial(ZHA_ENTITIES.multipass_match, Platform.SENSOR)
+CONFIG_DIAGNOSTIC_MATCH = functools.partial(
+    ZHA_ENTITIES.config_diagnostic_match, Platform.SENSOR
+)
 
 
 async def async_setup_entry(
@@ -261,6 +266,7 @@ class Battery(Sensor):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_translation_key: str = "battery_remaining"
 
     @classmethod
     def create_entity(
@@ -1210,3 +1216,62 @@ class AqaraSmokeDensityDbm(Sensor):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_icon: str = "mdi:google-circles-communities"
     _attr_suggested_display_precision: int = 3
+
+
+@CONFIG_DIAGNOSTIC_MATCH(cluster_handler_names="window_covering")
+# pylint: disable-next=hass-invalid-inheritance # needs fixing
+class WindowCoveringTypeSensor(Sensor):
+    """Sensor that displays the type of a cover device."""
+
+    _attribute_name: str = WindowCovering.AttributeDefs.window_covering_type.name
+    _unique_id_suffix: str = WindowCovering.AttributeDefs.window_covering_type.name
+    _attr_translation_key: str = WindowCovering.AttributeDefs.window_covering_type.name
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:curtains"
+
+    def formatter(self, value: int) -> int | float | None:
+        """Enum formatter."""
+        return WindowCovering.WindowCoveringType(value).name
+
+
+@CONFIG_DIAGNOSTIC_MATCH(cluster_handler_names="basic", models={"lumi.curtain.agl001"})
+# pylint: disable-next=hass-invalid-inheritance # needs fixing
+class AqaraCurtainMotorPowerSourceSensor(Sensor):
+    """Sensor that displays the power source of the Aqara E1 curtain motor device."""
+
+    _attribute_name: str = Basic.AttributeDefs.power_source.name
+    _unique_id_suffix: str = Basic.AttributeDefs.power_source.name
+    _attr_translation_key: str = Basic.AttributeDefs.power_source.name
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:battery-positive"
+
+    def formatter(self, value: int) -> int | float | None:
+        """Enum formatter."""
+        return Basic.PowerSource(value).name
+
+
+class AqaraE1HookState(types.enum8):
+    """Aqara hook state."""
+
+    Unlocked = 0x00
+    Locked = 0x01
+    Locking = 0x02
+    Unlocking = 0x03
+
+
+@CONFIG_DIAGNOSTIC_MATCH(
+    cluster_handler_names="opple_cluster", models={"lumi.curtain.agl001"}
+)
+# pylint: disable-next=hass-invalid-inheritance # needs fixing
+class AqaraCurtainHookStateSensor(Sensor):
+    """Representation of a ZHA curtain mode configuration entity."""
+
+    _attribute_name = "hooks_state"
+    _unique_id_suffix = "hooks_state"
+    _attr_translation_key: str = "hooks_state"
+    _attr_icon: str = "mdi:hook"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def formatter(self, value: int) -> int | float | None:
+        """Enum formatter."""
+        return AqaraE1HookState(value).name

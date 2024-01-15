@@ -164,6 +164,9 @@ class BasicClusterHandler(ClusterHandler):
         ):
             self.ZCL_INIT_ATTRS = self.ZCL_INIT_ATTRS.copy()
             self.ZCL_INIT_ATTRS["transmit_power"] = True
+        elif self.cluster.endpoint.model == "lumi.curtain.agl001":
+            self.ZCL_INIT_ATTRS = self.ZCL_INIT_ATTRS.copy()
+            self.ZCL_INIT_ATTRS["power_source"] = True
 
 
 @registries.ZIGBEE_CLUSTER_HANDLER_REGISTRY.register(general.BinaryInput.cluster_id)
