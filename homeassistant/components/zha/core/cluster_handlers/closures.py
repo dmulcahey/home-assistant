@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import zigpy.types as t
 from zigpy.zcl.clusters import closures
 
 from homeassistant.core import callback
@@ -152,6 +153,10 @@ class WindowCovering(ClusterHandler):
         WCAttrs.window_covering_type.name: True,
         WCAttrs.window_covering_mode.name: True,
         WCAttrs.config_status.name: True,
+        WCAttrs.installed_closed_limit_lift.name: True,
+        WCAttrs.installed_closed_limit_tilt.name: True,
+        WCAttrs.installed_open_limit_lift.name: True,
+        WCAttrs.installed_open_limit_tilt.name: True,
     }
 
     async def async_update(self):
@@ -215,11 +220,38 @@ class WindowCovering(ClusterHandler):
         )
 
     @property
-    def current_position_lift_percentage(self):
-        """Return the current position of the window covering."""
+    def current_position_lift_percentage(self) -> t.uint16_t | None:
+        """Return the current lift percentage of the window covering."""
         return self.cluster.get(WCAttrs.current_position_lift_percentage.name)
 
     @property
-    def current_position_tilt_percentage(self):
-        """Return the current position of the window covering."""
+    def current_position_tilt_percentage(self) -> t.uint16_t | None:
+        """Return the current tilt percentage of the window covering."""
         return self.cluster.get(WCAttrs.current_position_tilt_percentage.name)
+
+    @property
+    def installed_open_limit_lift(self) -> t.uint16_t | None:
+        """Return the installed open lift limit of the window covering."""
+        return self.cluster.get(WCAttrs.installed_open_limit_lift.name)
+
+    @property
+    def installed_closed_limit_lift(self) -> t.uint16_t | None:
+        """Return the installed closed lift limit of the window covering."""
+        return self.cluster.get(WCAttrs.installed_closed_limit_lift.name)
+
+    @property
+    def installed_open_limit_tilt(self) -> t.uint16_t | None:
+        """Return the installed open tilt limit of the window covering."""
+        return self.cluster.get(WCAttrs.installed_open_limit_tilt.name)
+
+    @property
+    def installed_closed_limit_tilt(self) -> t.uint16_t | None:
+        """Return the installed closed tilt limit of the window covering."""
+        return self.cluster.get(WCAttrs.installed_closed_limit_tilt.name)
+
+    @property
+    def window_covering_type(self) -> closures.WindowCovering.WindowCoveringType:
+        """Return the window covering type."""
+        return closures.WindowCovering.WindowCoveringType(
+            self.cluster.get(WCAttrs.window_covering_type.name)
+        )

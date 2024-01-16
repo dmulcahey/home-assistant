@@ -133,6 +133,7 @@ def zigpy_keen_vent(zigpy_device_mock):
 
 
 WCAttrs = closures.WindowCovering.AttributeDefs
+WCT = closures.WindowCovering.WindowCoveringType
 
 
 async def test_cover(
@@ -145,10 +146,11 @@ async def test_cover(
     cluster.PLUGGED_ATTR_READS = {
         WCAttrs.current_position_lift_percentage.name: 65,
         WCAttrs.current_position_tilt_percentage.name: 42,
+        WCAttrs.window_covering_type.name: WCT.Tilt_blind_tilt_and_lift,
     }
     update_attribute_cache(cluster)
     zha_device = await zha_device_joined_restored(zigpy_cover_device)
-    assert cluster.read_attributes.call_count == 2
+    assert cluster.read_attributes.call_count == 3
     assert (
         WCAttrs.current_position_lift_percentage.name
         in cluster.read_attributes.call_args[0][0]
@@ -328,6 +330,7 @@ async def test_cover_failures(
     cluster = zigpy_cover_device.endpoints.get(1).window_covering
     cluster.PLUGGED_ATTR_READS = {
         WCAttrs.current_position_tilt_percentage.name: 42,
+        WCAttrs.window_covering_type.name: WCT.Tilt_blind_tilt_and_lift,
     }
     update_attribute_cache(cluster)
     zha_device = await zha_device_joined_restored(zigpy_cover_device)
@@ -715,6 +718,7 @@ async def test_cover_restore_state(
     cluster.PLUGGED_ATTR_READS = {
         WCAttrs.current_position_lift_percentage.name: 50,
         WCAttrs.current_position_tilt_percentage.name: 42,
+        WCAttrs.window_covering_type.name: WCT.Tilt_blind_tilt_and_lift,
     }
     update_attribute_cache(cluster)
 

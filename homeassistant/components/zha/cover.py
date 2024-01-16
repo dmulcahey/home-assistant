@@ -15,6 +15,7 @@ from homeassistant.components.cover import (
     ATTR_TILT_POSITION,
     CoverDeviceClass,
     CoverEntity,
+    CoverEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -73,6 +74,20 @@ async def async_setup_entry(
 
 
 WCAttrs = WindowCoveringCluster.AttributeDefs
+WCT = WindowCoveringCluster.WindowCoveringType
+
+ZCL_TO_COVER_DEVICE_CLASS = {
+    WCT.Awning: CoverDeviceClass.AWNING,
+    WCT.Drapery: CoverDeviceClass.CURTAIN,
+    WCT.Projector_screen: CoverDeviceClass.SHADE,
+    WCT.Rollershade: CoverDeviceClass.SHADE,
+    WCT.Rollershade_two_motors: CoverDeviceClass.SHADE,
+    WCT.Rollershade_exterior: CoverDeviceClass.SHADE,
+    WCT.Rollershade_exterior_two_motors: CoverDeviceClass.SHADE,
+    WCT.Shutter: CoverDeviceClass.SHUTTER,
+    WCT.Tilt_blind_tilt_only: CoverDeviceClass.BLIND,
+    WCT.Tilt_blind_tilt_and_lift: CoverDeviceClass.BLIND,
+}
 
 
 @MULTI_MATCH(cluster_handler_names=CLUSTER_HANDLER_COVER)
@@ -89,12 +104,35 @@ class ZhaCover(ZhaEntity, CoverEntity):
         self._cover_cluster_handler: WindowCovering = cast(
             WindowCovering, cluster_handler
         )
+        self._attr_device_class = ZCL_TO_COVER_DEVICE_CLASS.get(
+            self._cover_cluster_handler.window_covering_type
+        )
+        self._attr_supported_features = self._determine_supported_features()
         self._current_position = (
             self._cover_cluster_handler.current_position_lift_percentage
         )
         self._tilt_position = (
             self._cover_cluster_handler.current_position_tilt_percentage
         )
+
+    def _determine_supported_features(self) -> CoverEntityFeature:
+        """Determine the supported cover features."""
+        supported_features: CoverEntityFeature = (
+            CoverEntityFeature.OPEN
+            | CoverEntityFeature.CLOSE
+            | CoverEntityFeature.STOP
+            | CoverEntityFeature.SET_POSITION
+        )
+        if self._cover_cluster_handler.window_covering_type in (
+            WCT.Shutter,
+            WCT.Tilt_blind_tilt_only,
+            WCT.Tilt_blind_tilt_and_lift,
+        ):
+            supported_features |= CoverEntityFeature.SET_TILT_POSITION
+            supported_features |= CoverEntityFeature.OPEN_TILT
+            supported_features |= CoverEntityFeature.CLOSE_TILT
+            supported_features |= CoverEntityFeature.STOP_TILT
+        return supported_features
 
     async def async_added_to_hass(self) -> None:
         """Run when about to be added to hass."""
@@ -105,7 +143,11 @@ class ZhaCover(ZhaEntity, CoverEntity):
 
     @property
     def is_closed(self) -> bool | None:
-        """Return if the cover is closed."""
+        """Return if the cover is closed.
+
+        In HA None is unknown, 0 is closed, 100 is fully open.
+        In ZCL 0 is fully open, 100 is fully closed.
+        """
         if self.current_cover_position is None:
             return None
         if self._cover_cluster_handler.inverted:
@@ -126,7 +168,8 @@ class ZhaCover(ZhaEntity, CoverEntity):
     def current_cover_position(self) -> int | None:
         """Return the current position of ZHA cover.
 
-        None is unknown, 0 is closed, 100 is fully open.
+        In HA None is unknown, 0 is closed, 100 is fully open.
+        In ZCL 0 is fully open, 100 is fully closed.
         """
         return self._current_position
 
@@ -213,7 +256,11 @@ class ZhaCover(ZhaEntity, CoverEntity):
         res = await self._cover_cluster_handler.stop()
         if res[1] is not Status.SUCCESS:
             raise HomeAssistantError(f"Failed to stop cover: {res[1]}")
-        self._state = STATE_OPEN if self._current_position > 0 else STATE_CLOSED
+        self._state = (
+            STATE_OPEN
+            if self._current_position is not None and self._current_position > 0
+            else STATE_CLOSED
+        )
         self.async_write_ha_state()
 
     async def async_stop_cover_tilt(self, **kwargs: Any) -> None:
