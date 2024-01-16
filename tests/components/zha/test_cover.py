@@ -42,6 +42,7 @@ from .common import (
     find_entity_id,
     make_zcl_header,
     send_attributes_report,
+    update_attribute_cache,
 )
 from .conftest import SIG_EP_INPUT, SIG_EP_OUTPUT, SIG_EP_PROFILE, SIG_EP_TYPE
 
@@ -131,6 +132,9 @@ def zigpy_keen_vent(zigpy_device_mock):
     )
 
 
+WCAttrs = closures.WindowCovering.AttributeDefs
+
+
 async def test_cover(
     hass: HomeAssistant, zha_device_joined_restored, zigpy_cover_device
 ) -> None:
@@ -139,13 +143,20 @@ async def test_cover(
     # load up cover domain
     cluster = zigpy_cover_device.endpoints.get(1).window_covering
     cluster.PLUGGED_ATTR_READS = {
-        "current_position_lift_percentage": 65,
-        "current_position_tilt_percentage": 42,
+        WCAttrs.current_position_lift_percentage.name: 65,
+        WCAttrs.current_position_tilt_percentage.name: 42,
     }
+    update_attribute_cache(cluster)
     zha_device = await zha_device_joined_restored(zigpy_cover_device)
-    assert cluster.read_attributes.call_count == 1
-    assert "current_position_lift_percentage" in cluster.read_attributes.call_args[0][0]
-    assert "current_position_tilt_percentage" in cluster.read_attributes.call_args[0][0]
+    assert cluster.read_attributes.call_count == 2
+    assert (
+        WCAttrs.current_position_lift_percentage.name
+        in cluster.read_attributes.call_args[0][0]
+    )
+    assert (
+        WCAttrs.current_position_tilt_percentage.name
+        in cluster.read_attributes.call_args[0][0]
+    )
 
     entity_id = find_entity_id(Platform.COVER, zha_device, hass)
     assert entity_id is not None
@@ -161,7 +172,7 @@ async def test_cover(
     # test update
     prev_call_count = cluster.read_attributes.call_count
     await async_update_entity(hass, entity_id)
-    assert cluster.read_attributes.call_count == prev_call_count + 2
+    assert cluster.read_attributes.call_count == prev_call_count + 1
     state = hass.states.get(entity_id)
     assert state
     assert state.state == STATE_OPEN
@@ -316,9 +327,9 @@ async def test_cover_failures(
     # load up cover domain
     cluster = zigpy_cover_device.endpoints.get(1).window_covering
     cluster.PLUGGED_ATTR_READS = {
-        "current_position_lift_percentage": None,
-        "current_position_tilt_percentage": 42,
+        WCAttrs.current_position_tilt_percentage.name: 42,
     }
+    update_attribute_cache(cluster)
     zha_device = await zha_device_joined_restored(zigpy_cover_device)
 
     entity_id = find_entity_id(Platform.COVER, zha_device, hass)
@@ -331,7 +342,7 @@ async def test_cover_failures(
     # test update returned None
     prev_call_count = cluster.read_attributes.call_count
     await async_update_entity(hass, entity_id)
-    assert cluster.read_attributes.call_count == prev_call_count + 2
+    assert cluster.read_attributes.call_count == prev_call_count + 1
     assert hass.states.get(entity_id).state == STATE_UNAVAILABLE
 
     # allow traffic to flow through the gateway and device
@@ -700,16 +711,12 @@ async def test_cover_restore_state(
     hass: HomeAssistant, zha_device_restored, zigpy_cover_device
 ) -> None:
     """Ensure states are restored on startup."""
-    mock_restore_cache(
-        hass,
-        (
-            State(
-                "cover.fakemanufacturer_fakemodel_cover",
-                STATE_OPEN,
-                {ATTR_CURRENT_POSITION: 50, ATTR_CURRENT_TILT_POSITION: 42},
-            ),
-        ),
-    )
+    cluster = zigpy_cover_device.endpoints.get(1).window_covering
+    cluster.PLUGGED_ATTR_READS = {
+        WCAttrs.current_position_lift_percentage.name: 50,
+        WCAttrs.current_position_tilt_percentage.name: 42,
+    }
+    update_attribute_cache(cluster)
 
     hass.state = CoreState.starting
 

@@ -4,8 +4,9 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
+from zigpy.zcl.clusters.closures import WindowCovering as WindowCoveringCluster
 from zigpy.zcl.foundation import Status
 
 from homeassistant.components.cover import (
@@ -29,6 +30,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .core import discovery
+from .core.cluster_handlers.closures import WindowCovering
 from .core.const import (
     CLUSTER_HANDLER_COVER,
     CLUSTER_HANDLER_LEVEL,
@@ -70,6 +72,9 @@ async def async_setup_entry(
     config_entry.async_on_unload(unsub)
 
 
+WCAttrs = WindowCoveringCluster.AttributeDefs
+
+
 @MULTI_MATCH(cluster_handler_names=CLUSTER_HANDLER_COVER)
 class ZhaCover(ZhaEntity, CoverEntity):
     """Representation of a ZHA cover."""
@@ -81,11 +86,15 @@ class ZhaCover(ZhaEntity, CoverEntity):
         super().__init__(unique_id, zha_device, cluster_handlers, **kwargs)
         cluster_handler = self.cluster_handlers.get(CLUSTER_HANDLER_COVER)
         assert cluster_handler
-        self._cover_cluster_handler: ClusterHandler = cluster_handler
+        self._cover_cluster_handler: WindowCovering = cast(
+            WindowCovering, cluster_handler
+        )
         self._current_position = (
             self._cover_cluster_handler.current_position_lift_percentage
         )
-        self._tilt_position = None
+        self._tilt_position = (
+            self._cover_cluster_handler.current_position_tilt_percentage
+        )
 
     async def async_added_to_hass(self) -> None:
         """Run when about to be added to hass."""
@@ -93,17 +102,6 @@ class ZhaCover(ZhaEntity, CoverEntity):
         self.async_accept_signal(
             self._cover_cluster_handler, SIGNAL_ATTR_UPDATED, self.async_set_position
         )
-
-    @callback
-    def async_restore_last_state(self, last_state):
-        """Restore previous state."""
-        self._state = last_state.state
-        if "current_position" in last_state.attributes:
-            self._current_position = last_state.attributes["current_position"]
-        if "current_tilt_position" in last_state.attributes:
-            self._tilt_position = last_state.attributes[
-                "current_tilt_position"
-            ]  # first allocation activate tilt
 
     @property
     def is_closed(self) -> bool | None:
@@ -141,10 +139,10 @@ class ZhaCover(ZhaEntity, CoverEntity):
     def async_set_position(self, attr_id, attr_name, value):
         """Handle position update from cluster handler."""
         _LOGGER.debug("setting position: %s %s %s", attr_id, attr_name, value)
-        if attr_name == "current_position_lift_percentage":
+        if attr_name == WCAttrs.current_position_lift_percentage.name:
             if not self._cover_cluster_handler.inverted:
                 self._current_position = 100 - value
-        elif attr_name == "current_position_tilt_percentage":
+        elif attr_name == WCAttrs.current_position_tilt_percentage.name:
             self._tilt_position = 100 - value
 
         if self._current_position == 0:
@@ -156,7 +154,7 @@ class ZhaCover(ZhaEntity, CoverEntity):
     @callback
     def async_update_state(self, state):
         """Handle state update from cluster handler."""
-        _LOGGER.debug("state=%s", state)
+        _LOGGER.debug("async_update_state=%s", state)
         self._state = state
         self.async_write_ha_state()
 
@@ -221,31 +219,6 @@ class ZhaCover(ZhaEntity, CoverEntity):
     async def async_stop_cover_tilt(self, **kwargs: Any) -> None:
         """Stop the cover tilt."""
         await self.async_stop_cover()
-
-    async def async_update(self) -> None:
-        """Attempt to retrieve the open/close state of the cover."""
-        await super().async_update()
-        await self.async_get_state()
-
-    async def async_get_state(self, from_cache=True):
-        """Fetch the current state."""
-        _LOGGER.debug("polling current state")
-        if self._cover_cluster_handler:
-            pos = await self._cover_cluster_handler.get_attribute_value(
-                "current_position_lift_percentage", from_cache=from_cache
-            )
-            _LOGGER.debug("read pos=%s", pos)
-
-            if pos is not None:
-                self._current_position = (
-                    100 - pos if not self._cover_cluster_handler.inverted else pos
-                )
-                self._state = (
-                    STATE_OPEN if self.current_cover_position > 0 else STATE_CLOSED
-                )
-            else:
-                self._current_position = None
-                self._state = None
 
 
 @MULTI_MATCH(

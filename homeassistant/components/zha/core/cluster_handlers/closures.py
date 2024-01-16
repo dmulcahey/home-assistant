@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import zigpy.types as t
 from zigpy.zcl.clusters import closures
 
 from homeassistant.core import callback
@@ -12,6 +11,9 @@ from .. import registries
 from ..const import REPORT_CONFIG_IMMEDIATE, SIGNAL_ATTR_UPDATED
 from . import AttrReportConfig, ClientClusterHandler, ClusterHandler
 
+DLAttrs = closures.DoorLock.AttributeDefs
+DLCCmds = closures.DoorLock.ClientCommandDefs
+
 
 @registries.ZIGBEE_CLUSTER_HANDLER_REGISTRY.register(closures.DoorLock.cluster_id)
 class DoorLockClusterHandler(ClusterHandler):
@@ -19,15 +21,20 @@ class DoorLockClusterHandler(ClusterHandler):
 
     _value_attribute = 0
     REPORT_CONFIG = (
-        AttrReportConfig(attr="lock_state", config=REPORT_CONFIG_IMMEDIATE),
+        AttrReportConfig(attr=DLAttrs.lock_state.name, config=REPORT_CONFIG_IMMEDIATE),
     )
 
     async def async_update(self):
         """Retrieve latest state."""
-        result = await self.get_attribute_value("lock_state", from_cache=True)
+        result = await self.get_attribute_value(
+            DLAttrs.lock_state.name, from_cache=True
+        )
         if result is not None:
             self.async_send_signal(
-                f"{self.unique_id}_{SIGNAL_ATTR_UPDATED}", 0, "lock_state", result
+                f"{self.unique_id}_{SIGNAL_ATTR_UPDATED}",
+                0,
+                DLAttrs.lock_state.name,
+                result,
             )
 
     @callback
@@ -42,7 +49,7 @@ class DoorLockClusterHandler(ClusterHandler):
 
         command_name = self._cluster.client_commands[command_id].name
 
-        if command_name == "operation_event_notification":
+        if command_name == DLCCmds.operation_event_notification.name:
             self.zha_send_event(
                 command_name,
                 {
@@ -122,6 +129,9 @@ class WindowCoveringClient(ClientClusterHandler):
     """Window client cluster handler."""
 
 
+WCAttrs = closures.WindowCovering.AttributeDefs
+
+
 @registries.BINDABLE_CLUSTERS.register(closures.WindowCovering.cluster_id)
 @registries.ZIGBEE_CLUSTER_HANDLER_REGISTRY.register(closures.WindowCovering.cluster_id)
 class WindowCovering(ClusterHandler):
@@ -129,57 +139,54 @@ class WindowCovering(ClusterHandler):
 
     REPORT_CONFIG = (
         AttrReportConfig(
-            attr="current_position_lift_percentage", config=REPORT_CONFIG_IMMEDIATE
+            attr=WCAttrs.current_position_lift_percentage.name,
+            config=REPORT_CONFIG_IMMEDIATE,
         ),
         AttrReportConfig(
-            attr="current_position_tilt_percentage", config=REPORT_CONFIG_IMMEDIATE
+            attr=WCAttrs.current_position_tilt_percentage.name,
+            config=REPORT_CONFIG_IMMEDIATE,
         ),
     )
 
     ZCL_INIT_ATTRS = {
-        "window_covering_type": True,
-        "window_covering_mode": True,
-        "config_status": True,
+        WCAttrs.window_covering_type.name: True,
+        WCAttrs.window_covering_mode.name: True,
+        WCAttrs.config_status.name: True,
     }
-
-    _value_attribute_lift = (
-        closures.WindowCovering.AttributeDefs.current_position_lift_percentage.id
-    )
-    _value_attribute_tilt = (
-        closures.WindowCovering.AttributeDefs.current_position_tilt_percentage.id
-    )
-
-    class Mode(t.bitmap8):
-        """Mode bitmap."""
-
-        Inverted = 0b0000_0001
-        Calibration_Mode = 0b0000_0010
-        Maintenance_Mode = 0b0000_0100
-        Leds_On = 0b0000_1000
 
     async def async_update(self):
         """Retrieve latest state."""
-        result = await self.get_attribute_value(
-            "current_position_lift_percentage", from_cache=False
+        results = await self.get_attributes(
+            [
+                WCAttrs.current_position_lift_percentage.name,
+                WCAttrs.current_position_tilt_percentage.name,
+            ],
+            from_cache=False,
+            only_cache=False,
         )
-        self.debug("read current position: %s", result)
-        if result is not None:
+        self.debug(
+            "read current_position_lift_percentage and current_position_tilt_percentage - results: %s",
+            results,
+        )
+        if (
+            results
+            and results.get(WCAttrs.current_position_lift_percentage.name) is not None
+        ):
             self.async_send_signal(
                 f"{self.unique_id}_{SIGNAL_ATTR_UPDATED}",
-                self._value_attribute_lift,
-                "current_position_lift_percentage",
-                result,
+                WCAttrs.current_position_lift_percentage.id,
+                WCAttrs.current_position_lift_percentage.name,
+                results.get(WCAttrs.current_position_lift_percentage.name),
             )
-        result = await self.get_attribute_value(
-            "current_position_tilt_percentage", from_cache=False
-        )
-        self.debug("read current tilt position: %s", result)
-        if result is not None:
+        if (
+            results
+            and results.get(WCAttrs.current_position_tilt_percentage.name) is not None
+        ):
             self.async_send_signal(
                 f"{self.unique_id}_{SIGNAL_ATTR_UPDATED}",
-                self._value_attribute_tilt,
-                "current_position_tilt_percentage",
-                result,
+                WCAttrs.current_position_tilt_percentage.id,
+                WCAttrs.current_position_tilt_percentage.name,
+                results.get(WCAttrs.current_position_tilt_percentage.name),
             )
 
     @callback
@@ -189,7 +196,10 @@ class WindowCovering(ClusterHandler):
         self.debug(
             "Attribute report '%s'[%s] = %s", self.cluster.name, attr_name, value
         )
-        if attrid in (self._value_attribute_lift, self._value_attribute_tilt):
+        if attrid in (
+            WCAttrs.current_position_lift_percentage.id,
+            WCAttrs.current_position_tilt_percentage.id,
+        ):
             self.async_send_signal(
                 f"{self.unique_id}_{SIGNAL_ATTR_UPDATED}", attrid, attr_name, value
             )
@@ -197,18 +207,19 @@ class WindowCovering(ClusterHandler):
     @property
     def inverted(self):
         """Return true if the window covering is inverted."""
-        config_status = self.cluster.get("config_status")
-        if config_status is not None:
-            return (
-                closures.ConfigStatus.Open_up_commands_reversed
-                in closures.ConfigStatus(config_status)
-            )
-        return False
+        config_status = self.cluster.get(WCAttrs.config_status.name)
+        return (
+            config_status is not None
+            and closures.ConfigStatus.Open_up_commands_reversed
+            in closures.ConfigStatus(config_status)
+        )
 
     @property
     def current_position_lift_percentage(self):
         """Return the current position of the window covering."""
-        result = self.cluster.get("current_position_lift_percentage")
-        if result is not None:
-            return result
-        return 0
+        return self.cluster.get(WCAttrs.current_position_lift_percentage.name)
+
+    @property
+    def current_position_tilt_percentage(self):
+        """Return the current position of the window covering."""
+        return self.cluster.get(WCAttrs.current_position_tilt_percentage.name)
