@@ -134,6 +134,7 @@ def zigpy_keen_vent(zigpy_device_mock):
 
 WCAttrs = closures.WindowCovering.AttributeDefs
 WCT = closures.WindowCovering.WindowCoveringType
+WCCS = closures.WindowCovering.ConfigStatus
 
 
 async def test_cover(
@@ -147,9 +148,15 @@ async def test_cover(
         WCAttrs.current_position_lift_percentage.name: 65,
         WCAttrs.current_position_tilt_percentage.name: 42,
         WCAttrs.window_covering_type.name: WCT.Tilt_blind_tilt_and_lift,
+        WCAttrs.config_status.name: WCCS(~WCCS.Open_up_commands_reversed),
     }
     update_attribute_cache(cluster)
     zha_device = await zha_device_joined_restored(zigpy_cover_device)
+    assert (
+        not zha_device.endpoints[1]
+        .all_cluster_handlers[f"1:0x{cluster.cluster_id:04x}"]
+        .inverted
+    )
     assert cluster.read_attributes.call_count == 3
     assert (
         WCAttrs.current_position_lift_percentage.name
@@ -182,19 +189,27 @@ async def test_cover(
     assert state.attributes[ATTR_CURRENT_TILT_POSITION] == 58
 
     # test that the state has changed from unavailable to off
-    await send_attributes_report(hass, cluster, {0: 0, 8: 100, 1: 1})
+    await send_attributes_report(
+        hass, cluster, {WCAttrs.current_position_lift_percentage.id: 100}
+    )
     assert hass.states.get(entity_id).state == STATE_CLOSED
 
     # test to see if it opens
-    await send_attributes_report(hass, cluster, {0: 1, 8: 0, 1: 100})
+    await send_attributes_report(
+        hass, cluster, {WCAttrs.current_position_lift_percentage.id: 0}
+    )
     assert hass.states.get(entity_id).state == STATE_OPEN
 
     # test that the state remains after tilting to 100%
-    await send_attributes_report(hass, cluster, {0: 0, 9: 100, 1: 1})
+    await send_attributes_report(
+        hass, cluster, {WCAttrs.current_position_tilt_percentage.id: 100}
+    )
     assert hass.states.get(entity_id).state == STATE_OPEN
 
     # test to see the state remains after tilting to 0%
-    await send_attributes_report(hass, cluster, {0: 1, 9: 0, 1: 100})
+    await send_attributes_report(
+        hass, cluster, {WCAttrs.current_position_tilt_percentage.id: 0}
+    )
     assert hass.states.get(entity_id).state == STATE_OPEN
 
     # close from UI
