@@ -146,7 +146,13 @@ class ZhaCover(ZhaEntity, CoverEntity):
         return supported_features
 
     def _determine_state(self) -> None:
-        """Determine the state of the cover."""
+        """Determine the state of the cover.
+
+        In HA None is unknown, 0 is closed, 100 is fully open.
+        In ZCL 0 is fully open, 100 is fully closed.
+        Keep in mind the values have already been flipped to match HA
+        when the values were processed by async_set_position
+        """
         if (
             self._cover_cluster_handler.inverted
             and self._current_position_lift_percentage == 0
