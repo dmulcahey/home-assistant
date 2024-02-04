@@ -634,6 +634,7 @@ class PollControlClusterHandler(ClusterHandler):
         await self.checkin_response(True, self.CHECKIN_FAST_POLL_TIMEOUT, tsn=tsn)
         if self._endpoint.device.manufacturer_code not in self._IGNORED_MANUFACTURER_ID:
             await self.set_long_poll_interval(self.LONG_POLL)
+        await self._endpoint.device.execute_delayed_tasks()
         await self.fast_poll_stop()
 
     @callback

@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import Enum
 import logging
 import random
@@ -181,6 +182,15 @@ class ZHADevice(LogMixin):
                     timedelta(seconds=keep_alive_interval),
                 )
             )
+        if not self.is_mains_powered:
+            poll_control_found: bool = False
+            self._delayed_tasks: set[asyncio.Task] = set()
+            for endpoint in self._endpoints.values():
+                if endpoint.zigpy_endpoint.poll_control:
+                    poll_control_found = True
+                    break
+            if not poll_control_found:
+                self._zigpy_device.add_listener(self)
 
     @property
     def device_id(self) -> str:
@@ -995,6 +1005,26 @@ class ZHADevice(LogMixin):
             else:
                 fmt = f"{log_msg[1]} completed: %s"
             zdo.debug(fmt, *(log_msg[2] + (outcome,)))
+
+    def add_delayed_task(self, coro: collections.abc.Coroutine, name: str) -> None:
+        """Add a delayed task to the device."""
+        assert not self.is_mains_powered
+        task = self.gateway.config_entry.async_create_task(self.hass, coro, name)
+        self._delayed_tasks.add(task)
+        task.add_done_callback(self._delayed_tasks.remove)
+
+    def device_last_seen_updated(self, last_seen: datetime) -> None:
+        """Handle device last seen updated as an implicit checkin event."""
+        self.gateway.config_entry.async_create_task(
+            self.hass, self.execute_delayed_tasks(), "implicit checkin"
+        )
+
+    async def execute_delayed_tasks(self) -> None:
+        """Execute all delayed tasks."""
+        if not self._delayed_tasks:
+            return
+        tasks = list(self._delayed_tasks)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     def log(self, level: int, msg: str, *args: Any, **kwargs: Any) -> None:
         """Log a message."""
