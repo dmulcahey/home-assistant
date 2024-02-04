@@ -184,7 +184,7 @@ class ZHADevice(LogMixin):
             )
         if not self.is_mains_powered:
             poll_control_found: bool = False
-            self._delayed_tasks: set[asyncio.Task] = set()
+            self._staged_tasks: set[asyncio.Task] = set()
             for endpoint in self._endpoints.values():
                 if endpoint.zigpy_endpoint.poll_control:
                     poll_control_found = True
@@ -1006,24 +1006,24 @@ class ZHADevice(LogMixin):
                 fmt = f"{log_msg[1]} completed: %s"
             zdo.debug(fmt, *(log_msg[2] + (outcome,)))
 
-    def add_delayed_task(self, coro: collections.abc.Coroutine, name: str) -> None:
-        """Add a delayed task to the device."""
+    def add_staged_task(self, coro: collections.abc.Coroutine, name: str) -> None:
+        """Add a staged task to the device."""
         assert not self.is_mains_powered
         task = self.gateway.config_entry.async_create_task(self.hass, coro, name)
-        self._delayed_tasks.add(task)
-        task.add_done_callback(self._delayed_tasks.remove)
+        self._staged_tasks.add(task)
+        task.add_done_callback(self._staged_tasks.remove)
 
     def device_last_seen_updated(self, last_seen: datetime) -> None:
         """Handle device last seen updated as an implicit checkin event."""
         self.gateway.config_entry.async_create_task(
-            self.hass, self.execute_delayed_tasks(), "implicit checkin"
+            self.hass, self.execute_staged_tasks(), "implicit checkin"
         )
 
-    async def execute_delayed_tasks(self) -> None:
-        """Execute all delayed tasks."""
-        if not self._delayed_tasks:
+    async def execute_staged_tasks(self) -> None:
+        """Execute all staged tasks."""
+        if not self._staged_tasks:
             return
-        tasks = list(self._delayed_tasks)
+        tasks = list(self._staged_tasks)
         await asyncio.gather(*tasks, return_exceptions=True)
 
     def log(self, level: int, msg: str, *args: Any, **kwargs: Any) -> None:
