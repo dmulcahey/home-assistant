@@ -58,22 +58,21 @@ class Sensor(ZHAEntity, SensorEntity):
         entity = self.entity_data.entity
         if (
             hasattr(entity, "_attr_device_class")
-            and entity._attr_device_class is not None
+            and entity._attr_device_class is not None  # noqa: SLF001
         ):
-            self._attr_device_class = SensorDeviceClass(entity._attr_device_class.value)
+            self._attr_device_class = SensorDeviceClass(entity._attr_device_class.value)  # noqa: SLF001
         if (
             hasattr(entity, "_attr_state_class")
-            and entity._attr_state_class is not None
+            and entity._attr_state_class is not None  # noqa: SLF001
         ):
-            self._attr_state_class = SensorStateClass(entity._attr_state_class.value)
+            self._attr_state_class = SensorStateClass(entity._attr_state_class.value)  # noqa: SLF001
 
         if hasattr(entity.info_object, "unit"):
             self._attr_native_unit_of_measurement = entity.info_object.unit
-        # TODO
-        """
-        if hasattr(entity, "entity_description"):
-            self.entity_description = entity.entity_description
-        """
+
+        # TODO  # pylint: disable=fixme
+        # if hasattr(entity, "entity_description"):
+        #     self.entity_description = entity.entity_description
 
     @property
     def native_value(self) -> StateType:

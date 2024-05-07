@@ -40,25 +40,25 @@ class ZHAEntity(LogMixin, entity.Entity):
         self._unsubs: list[Callable[[], None]] = []
         if (
             hasattr(self.entity_data.entity, "_attr_translation_key")
-            and self.entity_data.entity._attr_translation_key is not None
+            and self.entity_data.entity._attr_translation_key is not None  # noqa: SLF001
         ):
-            self._attr_translation_key = self.entity_data.entity._attr_translation_key
+            self._attr_translation_key = self.entity_data.entity._attr_translation_key  # noqa: SLF001
         if (
             hasattr(self.entity_data.entity, "_attr_entity_category")
-            and self.entity_data.entity._attr_entity_category is not None
+            and self.entity_data.entity._attr_entity_category is not None  # noqa: SLF001
         ):
             if (
-                self.entity_data.entity._attr_entity_category
+                self.entity_data.entity._attr_entity_category  # noqa: SLF001
                 == ZHAEntityCategory.CONFIG
             ):
                 self._attr_entity_category = EntityCategory.CONFIG
             elif (
-                self.entity_data.entity._attr_entity_category
+                self.entity_data.entity._attr_entity_category  # noqa: SLF001
                 == ZHAEntityCategory.DIAGNOSTIC
             ):
                 self._attr_entity_category = EntityCategory.DIAGNOSTIC
         if hasattr(self.entity_data.entity, "_attr_name"):
-            self._attr_name = self.entity_data.entity._attr_name
+            self._attr_name = self.entity_data.entity._attr_name  # noqa: SLF001
 
     @property
     def unique_id(self) -> str:
