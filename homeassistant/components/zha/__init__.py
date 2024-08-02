@@ -157,6 +157,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         raise ConfigEntryNotReady from exc
     except Exception as exc:
         _LOGGER.debug("Failed to set up ZHA", exc_info=exc)
+        await zha_gateway.shutdown()
         device_path = config_entry.data[CONF_DEVICE][CONF_DEVICE_PATH]
 
         if (
