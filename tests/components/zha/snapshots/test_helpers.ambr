@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: test_attribute_type_to_vol_schema_shapes[bool]
+# name: test_attribute_type_to_probatio_schema_shapes[bool]
   list([
     dict({
       'name': 'value',
@@ -8,7 +8,7 @@
     }),
   ])
 # ---
-# name: test_attribute_type_to_vol_schema_shapes[bytes]
+# name: test_attribute_type_to_probatio_schema_shapes[bytes]
   list([
     dict({
       'name': 'value',
@@ -17,7 +17,7 @@
     }),
   ])
 # ---
-# name: test_attribute_type_to_vol_schema_shapes[enum]
+# name: test_attribute_type_to_probatio_schema_shapes[enum]
   list([
     dict({
       'name': 'value',
@@ -36,7 +36,7 @@
     }),
   ])
 # ---
-# name: test_attribute_type_to_vol_schema_shapes[eui64]
+# name: test_attribute_type_to_probatio_schema_shapes[eui64]
   list([
     dict({
       'name': 'value',
@@ -45,7 +45,7 @@
     }),
   ])
 # ---
-# name: test_attribute_type_to_vol_schema_shapes[flags]
+# name: test_attribute_type_to_probatio_schema_shapes[flags]
   list([
     dict({
       'name': 'value',
@@ -58,7 +58,7 @@
     }),
   ])
 # ---
-# name: test_attribute_type_to_vol_schema_shapes[float]
+# name: test_attribute_type_to_probatio_schema_shapes[float]
   list([
     dict({
       'name': 'value',
@@ -72,7 +72,7 @@
     }),
   ])
 # ---
-# name: test_attribute_type_to_vol_schema_shapes[integer]
+# name: test_attribute_type_to_probatio_schema_shapes[integer]
   list([
     dict({
       'name': 'value',
@@ -88,7 +88,7 @@
     }),
   ])
 # ---
-# name: test_attribute_type_to_vol_schema_shapes[key_data]
+# name: test_attribute_type_to_probatio_schema_shapes[key_data]
   list([
     dict({
       'name': 'value',
@@ -97,7 +97,7 @@
     }),
   ])
 # ---
-# name: test_attribute_type_to_vol_schema_shapes[large_integer]
+# name: test_attribute_type_to_probatio_schema_shapes[large_integer]
   list([
     dict({
       'name': 'value',
@@ -111,7 +111,7 @@
     }),
   ])
 # ---
-# name: test_attribute_type_to_vol_schema_shapes[list]
+# name: test_attribute_type_to_probatio_schema_shapes[list]
   list([
     dict({
       'name': 'value',
@@ -138,7 +138,7 @@
     }),
   ])
 # ---
-# name: test_attribute_type_to_vol_schema_shapes[nested_large_integer]
+# name: test_attribute_type_to_probatio_schema_shapes[nested_large_integer]
   list([
     dict({
       'name': 'value',
@@ -183,7 +183,7 @@
     }),
   ])
 # ---
-# name: test_attribute_type_to_vol_schema_shapes[nested_struct]
+# name: test_attribute_type_to_probatio_schema_shapes[nested_struct]
   list([
     dict({
       'name': 'value',
@@ -316,7 +316,7 @@
     }),
   ])
 # ---
-# name: test_attribute_type_to_vol_schema_shapes[struct]
+# name: test_attribute_type_to_probatio_schema_shapes[struct]
   list([
     dict({
       'name': 'value',

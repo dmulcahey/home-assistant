@@ -15,9 +15,9 @@ from zigpy.zcl.clusters import general, homeautomation, lighting, security
 
 from homeassistant.components.zha import const as zha_const
 from homeassistant.components.zha.helpers import (
-    attribute_type_to_vol_schema,
+    attribute_type_to_probatio_schema,
     attribute_value_to_form_value,
-    cluster_command_schema_to_vol_schema,
+    cluster_command_schema_to_probatio_schema,
     convert_to_zcl_values,
     create_zha_config,
     exclude_none_values,
@@ -52,6 +52,13 @@ class _TestStruct(zigpy.types.Struct):
 
     field_a: zigpy.types.uint8_t
     field_b: zigpy.types.uint16_t
+
+
+class _TestOptionalStruct(zigpy.types.Struct):
+    """Struct with an optional field for service value conversion."""
+
+    required: zigpy.types.uint8_t
+    optional: zigpy.types.uint16_t = zigpy.types.StructField(optional=True)
 
 
 class _LargeIntegerStruct(zigpy.types.Struct):
@@ -107,11 +114,11 @@ class _SelectorCoverageStruct(zigpy.types.Struct):
 def test_zcl_schema_conversions(snapshot: SnapshotAssertion) -> None:
     """Test ZHA ZCL schema conversion helpers."""
     command_schema = lighting.Color.ServerCommandDefs.color_loop_set.schema
-    vol_schema = to_field_list(
-        cluster_command_schema_to_vol_schema(command_schema),
+    form_fields = to_field_list(
+        cluster_command_schema_to_probatio_schema(command_schema),
         custom_serializer=cv.custom_serializer,
     )
-    assert vol_schema == snapshot
+    assert form_fields == snapshot
 
 
 @pytest.mark.parametrize(
@@ -175,23 +182,23 @@ def test_zcl_value_conversions(
         pytest.param(_SelectorCoverageStruct, id="nested_struct"),
     ],
 )
-def test_attribute_type_to_vol_schema_shapes(
+def test_attribute_type_to_probatio_schema_shapes(
     attr_type: type, snapshot: SnapshotAssertion
 ) -> None:
     """Test serialized selectors for attribute types and nested fields."""
     assert (
         to_field_list(
-            attribute_type_to_vol_schema(attr_type),
+            attribute_type_to_probatio_schema(attr_type),
             custom_serializer=cv.custom_serializer,
         )
         == snapshot
     )
 
 
-def test_attribute_type_to_vol_schema_non_type_falls_back_to_text() -> None:
+def test_attribute_type_to_probatio_schema_non_type_falls_back_to_text() -> None:
     """Test non-type schema inputs safely fall back to text values."""
     assert to_field_list(
-        attribute_type_to_vol_schema(cast(Any, 123)),
+        attribute_type_to_probatio_schema(cast(Any, 123)),
         custom_serializer=cv.custom_serializer,
     ) == [{"type": "string", "name": "value", "required": True}]
 
@@ -304,25 +311,25 @@ def test_form_value_to_attribute_value_flag_inputs(
         pytest.param(
             _TestStruct,
             {"field_a": "invalid", "field_b": 2},
-            "Invalid value",
+            "Invalid value.*at 'field_a'",
             id="struct_invalid_nested_inputs",
         ),
         pytest.param(
             _TestStruct,
             {"field_a": 1, "field_b": 2, "extra": 3},
-            "Unexpected struct field",
+            "not a valid option at 'extra'",
             id="struct_unexpected_field",
         ),
         pytest.param(
             _TestStruct,
             {"field_a": 1},
-            "Missing required struct field",
+            "required key not provided at 'field_b'",
             id="struct_missing_required_field",
         ),
         pytest.param(
             _TestStruct,
             "invalid",
-            "Struct attributes require a dictionary",
+            "expected a mapping",
             id="struct_invalid_payload_type",
         ),
         pytest.param(
@@ -436,6 +443,25 @@ def test_form_value_to_attribute_value_struct_inputs() -> None:
     assert isinstance(value, _TestStruct)
     assert value.field_a == 1
     assert value.field_b == 2
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        pytest.param({"required": "0x12"}, b"\x12", id="omitted"),
+        pytest.param(
+            {"required": "0x12", "optional": 2}, b"\x12\x02\x00", id="provided"
+        ),
+        pytest.param({"required": "0x12", "optional": None}, b"\x12", id="none"),
+    ],
+)
+def test_form_value_to_attribute_value_optional_struct_fields(
+    payload: dict[str, int | str | None], expected: bytes
+) -> None:
+    """Preserve optional fields and legacy input through struct validation."""
+    converted = form_value_to_attribute_value(payload, _TestOptionalStruct)
+    assert isinstance(converted, _TestOptionalStruct)
+    assert converted.serialize() == expected
 
 
 def test_form_value_to_attribute_value_struct_passthrough_instance() -> None:
@@ -597,7 +623,7 @@ def test_unnamed_enum_and_bitmap_round_trip(attr_type: type, value: int) -> None
     form_value = attribute_value_to_form_value(attr_type(value), attr_type)
     assert form_value == value
     assert isinstance(form_value, int)
-    validated = attribute_type_to_vol_schema(attr_type)({"value": form_value})
+    validated = attribute_type_to_probatio_schema(attr_type)({"value": form_value})
     converted = form_value_to_attribute_value(validated["value"], attr_type)
     assert isinstance(converted, attr_type)
     assert converted == value
@@ -624,7 +650,7 @@ def test_large_integer_form_round_trip(attr_type: type, value: int) -> None:
     raw_value = attr_type(value)
     form_value = attribute_value_to_form_value(raw_value, attr_type)
     assert form_value == str(value)
-    validated = attribute_type_to_vol_schema(attr_type)({"value": form_value})
+    validated = attribute_type_to_probatio_schema(attr_type)({"value": form_value})
     converted = form_value_to_attribute_value(validated["value"], attr_type)
     assert isinstance(converted, attr_type)
     assert converted.serialize() == raw_value.serialize()
@@ -638,7 +664,9 @@ def test_nested_large_integer_form_round_trip() -> None:
         "signed": "-9223372036854775807",
         "unsigned": [{"value": "18446744073709551615"}],
     }
-    validated = attribute_type_to_vol_schema(_LargeIntegerStruct)({"value": form_value})
+    validated = attribute_type_to_probatio_schema(_LargeIntegerStruct)(
+        {"value": form_value}
+    )
     converted = form_value_to_attribute_value(validated["value"], _LargeIntegerStruct)
     assert converted.serialize() == raw_value.serialize()
 

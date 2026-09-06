@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager, suppress
 import copy
 import dataclasses
 import enum
+from functools import partial
 import itertools
 import logging
 import queue
@@ -15,7 +16,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, NamedTuple, cast, override
 from zoneinfo import ZoneInfo
 
-import voluptuous as vol
+import probatio
 from zha.application import Platform as ZhaPlatform
 from zha.application.const import (
     ATTR_DEVICE_IEEE,
@@ -1198,13 +1199,17 @@ def async_get_zha_device_proxy(hass: HomeAssistant, device_id: str) -> ZHADevice
     return zha_gateway_proxy.device_proxies[ieee]
 
 
-def cluster_command_schema_to_vol_schema(schema: type[CommandSchema]) -> vol.Schema:
-    """Convert a cluster command schema to a voluptuous schema."""
-    return vol.Schema(
+def cluster_command_schema_to_probatio_schema(
+    schema: type[CommandSchema],
+) -> probatio.Schema:
+    """Convert a cluster command schema to a probatio schema."""
+    return probatio.Schema(
         {
             (
-                vol.Optional(field.name) if field.optional else vol.Required(field.name)
-            ): _zcl_type_to_vol_schema_value(field.type)
+                probatio.Optional(field.name)
+                if field.optional
+                else probatio.Required(field.name)
+            ): _zcl_type_to_probatio_schema_value(field.type)
             for field in schema.fields
         }
     )
@@ -1236,8 +1241,8 @@ def _is_text_like_zcl_type(attr_type: type[Any]) -> bool:
     )
 
 
-def _zcl_type_to_vol_schema_value(field_type: type[Any]) -> Any:
-    """Convert a zigpy field type to a voluptuous form value schema."""
+def _zcl_type_to_probatio_schema_value(field_type: type[Any]) -> Any:
+    """Convert a zigpy field type to a probatio form value schema."""
     # Bool must come before Enum checks since zigpy Bool is an enum.
     if _is_subclass(field_type, zigpy.types.Bool):
         return cv.boolean
@@ -1249,7 +1254,9 @@ def _zcl_type_to_vol_schema_value(field_type: type[Any]) -> Any:
             }
         )
     if _is_subclass(field_type, enum.Enum) and field_type.__members__:
-        return vol.In([_member_display_name(key) for key in field_type.__members__])
+        return probatio.In(
+            [_member_display_name(key) for key in field_type.__members__]
+        )
     if _is_subclass(
         field_type,
         (zigpy.types.Struct, zigpy.types.FixedIntType, zigpy.types.BaseFloat),
@@ -1349,9 +1356,11 @@ def _list_type_to_selector(attr_type: type[list[Any]]) -> selector.ObjectSelecto
     )
 
 
-def attribute_type_to_vol_schema(attr_type: type[Any]) -> vol.Schema:
-    """Convert a zigpy attribute type to a single-field voluptuous schema for ha-form."""
-    return vol.Schema({vol.Required("value"): _zcl_type_to_vol_schema_value(attr_type)})
+def attribute_type_to_probatio_schema(attr_type: type[Any]) -> probatio.Schema:
+    """Convert a zigpy attribute type to a single-field probatio schema for ha-form."""
+    return probatio.Schema(
+        {probatio.Required("value"): _zcl_type_to_probatio_schema_value(attr_type)}
+    )
 
 
 def _struct_attribute_value_to_form_value(
@@ -1442,26 +1451,22 @@ def attribute_value_to_form_value(
 
 def _coerce_form_struct_value(form_value: Any, attr_type: type[Any]) -> Any:
     """Convert service form input to a zigpy struct value."""
-    if not isinstance(form_value, dict):
-        raise TypeError("Struct attributes require a dictionary payload")
+    schema = probatio.Schema(
+        {
+            (
+                probatio.Optional(field.name)
+                if field.optional
+                else probatio.Required(field.name)
+            ): partial(form_value_to_attribute_value, attr_type=field.type)
+            for field in attr_type.fields
+        }
+    )
 
-    converted_fields: dict[str, Any] = {}
-    field_by_name = {field.name: field for field in attr_type.fields}
-    unknown_keys = set(form_value) - set(field_by_name)
-    if unknown_keys:
-        raise ValueError(
-            f"Unexpected struct field(s) for {attr_type.__name__}: {sorted(unknown_keys)}"
-        )
+    try:
+        converted_fields = schema(form_value)
+    except probatio.Invalid as err:
+        raise ValueError(str(err)) from err
 
-    for field_name, field in field_by_name.items():
-        if field_name in form_value:
-            converted_fields[field_name] = form_value_to_attribute_value(
-                form_value[field_name], field.type
-            )
-        elif not field.optional:
-            raise ValueError(
-                f"Missing required struct field {field_name!r} for {attr_type.__name__}"
-            )
     return attr_type(**converted_fields)
 
 
@@ -1500,7 +1505,7 @@ def _coerce_form_scalar_value(form_value: Any, attr_type: type[Any]) -> Any:
     """Convert scalar form values while preserving ZHA service input formats."""
     value = form_value
     if issubclass(attr_type, zigpy.types.Bool) and isinstance(value, str):
-        with suppress(vol.Invalid):
+        with suppress(probatio.Invalid):
             value = cv.boolean(value)
     if issubclass(attr_type, int) and isinstance(value, float):
         if not value.is_integer():
@@ -1634,33 +1639,37 @@ def async_add_entities(
     entities.clear()
 
 
-CONF_ZHA_OPTIONS_SCHEMA = vol.Schema(
+CONF_ZHA_OPTIONS_SCHEMA = probatio.Schema(
     {
-        vol.Optional(CONF_DEFAULT_LIGHT_TRANSITION, default=0): vol.All(
-            vol.Coerce(float), vol.Range(min=0, max=2**16 / 10)
+        probatio.Optional(CONF_DEFAULT_LIGHT_TRANSITION, default=0): probatio.All(
+            probatio.Coerce(float), probatio.Range(min=0, max=2**16 / 10)
         ),
-        vol.Required(CONF_ENABLE_ENHANCED_LIGHT_TRANSITION, default=False): cv.boolean,
-        vol.Required(CONF_ENABLE_LIGHT_TRANSITIONING_FLAG, default=True): cv.boolean,
-        vol.Required(CONF_GROUP_MEMBERS_ASSUME_STATE, default=True): cv.boolean,
-        vol.Required(CONF_ENABLE_IDENTIFY_ON_JOIN, default=True): cv.boolean,
-        vol.Optional(
+        probatio.Required(
+            CONF_ENABLE_ENHANCED_LIGHT_TRANSITION, default=False
+        ): cv.boolean,
+        probatio.Required(
+            CONF_ENABLE_LIGHT_TRANSITIONING_FLAG, default=True
+        ): cv.boolean,
+        probatio.Required(CONF_GROUP_MEMBERS_ASSUME_STATE, default=True): cv.boolean,
+        probatio.Required(CONF_ENABLE_IDENTIFY_ON_JOIN, default=True): cv.boolean,
+        probatio.Optional(
             CONF_CONSIDER_UNAVAILABLE_MAINS,
             default=CONF_DEFAULT_CONSIDER_UNAVAILABLE_MAINS,
         ): cv.positive_int,
-        vol.Optional(
+        probatio.Optional(
             CONF_CONSIDER_UNAVAILABLE_BATTERY,
             default=CONF_DEFAULT_CONSIDER_UNAVAILABLE_BATTERY,
         ): cv.positive_int,
-        vol.Required(CONF_ENABLE_MAINS_STARTUP_POLLING, default=True): cv.boolean,
+        probatio.Required(CONF_ENABLE_MAINS_STARTUP_POLLING, default=True): cv.boolean,
     },
-    extra=vol.REMOVE_EXTRA,
+    extra=probatio.REMOVE_EXTRA,
 )
 
-CONF_ZHA_ALARM_SCHEMA = vol.Schema(
+CONF_ZHA_ALARM_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_ALARM_MASTER_CODE, default="1234"): cv.string,
-        vol.Required(CONF_ALARM_FAILED_TRIES, default=3): cv.positive_int,
-        vol.Required(CONF_ALARM_ARM_REQUIRES_CODE, default=False): cv.boolean,
+        probatio.Required(CONF_ALARM_MASTER_CODE, default="1234"): cv.string,
+        probatio.Required(CONF_ALARM_FAILED_TRIES, default=3): cv.positive_int,
+        probatio.Required(CONF_ALARM_ARM_REQUIRES_CODE, default=False): cv.boolean,
     }
 )
 
