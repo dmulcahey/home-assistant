@@ -115,6 +115,7 @@ from homeassistant.helpers import (
     config_validation as cv,
     device_registry as dr,
     entity_registry as er,
+    selector,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_send, dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -1196,66 +1197,464 @@ def async_get_zha_device_proxy(hass: HomeAssistant, device_id: str) -> ZHADevice
     return zha_gateway_proxy.device_proxies[ieee]
 
 
-def cluster_command_schema_to_vol_schema(schema: CommandSchema) -> vol.Schema:
+def cluster_command_schema_to_vol_schema(schema: type[CommandSchema]) -> vol.Schema:
     """Convert a cluster command schema to a voluptuous schema."""
     return vol.Schema(
         {
             (
                 vol.Optional(field.name) if field.optional else vol.Required(field.name)
-            ): schema_type_to_vol(field.type)
+            ): _zcl_type_to_vol_schema_value(field.type)
             for field in schema.fields
         }
     )
 
 
-def schema_type_to_vol(field_type: Any) -> Any:
-    """Convert a schema type to a voluptuous type."""
-    if issubclass(field_type, enum.Flag) and field_type.__members__:
+def _is_subclass(
+    attr_type: type[Any], class_or_tuple: type[Any] | tuple[type[Any], ...]
+) -> bool:
+    """Safely evaluate issubclass for runtime-provided zigpy schema types."""
+    return isinstance(attr_type, type) and issubclass(attr_type, class_or_tuple)
+
+
+def _member_display_name(name: str) -> str:
+    """Convert ZCL member names to stable UI labels."""
+    return name.replace("_", " ")
+
+
+def _is_text_like_zcl_type(attr_type: type[Any]) -> bool:
+    """Return true for zigpy types edited as plain text in ha-form."""
+    return _is_subclass(
+        attr_type,
+        (
+            zigpy.types.CharacterString,
+            zigpy.types.LongCharacterString,
+            str,
+            zigpy.types.EUI64,
+            zigpy.types.KeyData,
+            zigpy.types.SerializableBytes,
+            bytes,
+        ),
+    )
+
+
+def _number_selector_for_fixed_int(
+    attr_type: type[zigpy.types.FixedIntType],
+) -> selector.NumberSelector:
+    """Build a numeric selector for integer-like zigpy fields."""
+    number_config: selector.NumberSelectorConfig = {
+        "min": float(attr_type.min_value),
+        "max": float(attr_type.max_value),
+        "step": 1.0,
+        "mode": selector.NumberSelectorMode.BOX,
+    }
+    return selector.NumberSelector(number_config)
+
+
+def _number_selector_for_float() -> selector.NumberSelector:
+    """Build a numeric selector for float-like zigpy fields."""
+    float_number_config: selector.NumberSelectorConfig = {
+        "step": "any",
+        "mode": selector.NumberSelectorMode.BOX,
+    }
+    return selector.NumberSelector(float_number_config)
+
+
+def _zcl_type_to_vol_schema_value(field_type: type[Any]) -> Any:
+    """Convert a zigpy field type to a voluptuous form value schema."""
+    # Bool must come before Enum checks since zigpy Bool is an enum.
+    if _is_subclass(field_type, zigpy.types.Bool):
+        return cv.boolean
+    if _is_subclass(field_type, enum.Flag) and field_type.__members__:
         return cv.multi_select(
-            [key.replace("_", " ") for key in field_type.__members__]
+            {
+                _member_display_name(key): _member_display_name(key)
+                for key in field_type.__members__
+            }
         )
-    if issubclass(field_type, enum.Enum) and field_type.__members__:
-        return vol.In([key.replace("_", " ") for key in field_type.__members__])
-    if (
-        issubclass(field_type, zigpy.types.FixedIntType)
-        or issubclass(field_type, enum.Flag)
-        or issubclass(field_type, enum.Enum)
+    if _is_subclass(field_type, enum.Enum) and field_type.__members__:
+        return vol.In([_member_display_name(key) for key in field_type.__members__])
+    if _is_subclass(
+        field_type,
+        (zigpy.types.Struct, zigpy.types.FixedIntType, zigpy.types.BaseFloat),
     ):
-        return vol.All(
-            vol.Coerce(int), vol.Range(field_type.min_value, field_type.max_value)
-        )
+        return _attribute_type_to_selector(field_type)
+    if _is_text_like_zcl_type(field_type):
+        return str
+    if _is_subclass(field_type, list):
+        return _attribute_type_to_selector(field_type)
     return str
 
 
+def _attribute_type_to_selector(attr_type: type[Any]) -> selector.Selector:
+    """Convert a zigpy attribute type to a Home Assistant selector."""
+    if _is_subclass(attr_type, zigpy.types.Bool):
+        return selector.BooleanSelector()
+    if _is_subclass(attr_type, enum.Flag) and attr_type.__members__:
+        return selector.SelectSelector(
+            {
+                "options": [_member_display_name(key) for key in attr_type.__members__],
+                "multiple": True,
+            }
+        )
+    if _is_subclass(attr_type, enum.Enum) and attr_type.__members__:
+        return selector.SelectSelector(
+            {"options": [_member_display_name(key) for key in attr_type.__members__]}
+        )
+    if _is_subclass(attr_type, zigpy.types.Struct):
+        return _struct_type_to_selector(attr_type)
+    if _is_subclass(attr_type, zigpy.types.FixedIntType):
+        return _number_selector_for_fixed_int(attr_type)
+    if _is_subclass(attr_type, zigpy.types.BaseFloat):
+        return _number_selector_for_float()
+    if _is_text_like_zcl_type(attr_type):
+        return selector.TextSelector()
+    if _is_subclass(attr_type, list):
+        return _list_type_to_selector(attr_type)
+    return selector.TextSelector()
+
+
+def _struct_type_to_selector(
+    attr_type: type[zigpy.types.Struct],
+) -> selector.ObjectSelector:
+    """Build an object selector for a zigpy Struct type."""
+    fields: dict[str, selector.ObjectSelectorField] = {}
+    for struct_field in attr_type.fields:
+        fields[struct_field.name] = {
+            "selector": _attribute_type_to_selector(struct_field.type),
+            "required": not struct_field.optional,
+        }
+
+    selector_config: selector.ObjectSelectorConfig = {
+        "fields": fields,
+        "multiple": False,
+    }
+    if fields:
+        selector_config["label_field"] = next(iter(fields))
+    return selector.ObjectSelector(selector_config)
+
+
+def _list_type_to_selector(attr_type: type[list[Any]]) -> selector.ObjectSelector:
+    """Build a strict object-list selector for list-like zigpy types."""
+    item_type = getattr(attr_type, "_item_type", None)
+    item_selector = (
+        _attribute_type_to_selector(item_type)
+        if isinstance(item_type, type)
+        else selector.TextSelector()
+    )
+
+    return selector.ObjectSelector(
+        {
+            "fields": {
+                "value": {
+                    "selector": item_selector,
+                    "required": True,
+                }
+            },
+            "label_field": "value",
+            "multiple": True,
+        }
+    )
+
+
+def attribute_type_to_vol_schema(attr_type: type[Any]) -> vol.Schema:
+    """Convert a zigpy attribute type to a single-field voluptuous schema for ha-form."""
+    return vol.Schema({vol.Required("value"): _zcl_type_to_vol_schema_value(attr_type)})
+
+
+def _struct_attribute_value_to_form_value(
+    value: Any, attr_type: type[zigpy.types.Struct]
+) -> dict[str, Any] | str:
+    """Convert a zigpy Struct value to a form-compatible dictionary."""
+    if isinstance(value, dict):
+        raw_data: dict[str, Any] = value
+    elif isinstance(value, zigpy.types.Struct):
+        raw_data = value.as_dict()
+    else:
+        return str(value)
+
+    converted: dict[str, Any] = {}
+    for struct_field in attr_type.fields:
+        if struct_field.name in raw_data:
+            converted[struct_field.name] = attribute_value_to_form_value(
+                raw_data[struct_field.name], struct_field.type
+            )
+
+    return converted
+
+
+def _list_attribute_value_to_form_value(
+    value: Any, attr_type: type[list[Any]]
+) -> list[dict[str, Any]] | str:
+    """Convert a list-like zigpy value to strict object-list form data."""
+    if not isinstance(value, list | tuple):
+        return str(value)
+
+    item_type = getattr(attr_type, "_item_type", None)
+    if not isinstance(item_type, type):
+        return [{"value": item} for item in value]
+
+    return [{"value": attribute_value_to_form_value(item, item_type)} for item in value]
+
+
+def attribute_value_to_form_value(
+    value: Any, attr_type: type[Any]
+) -> bool | int | float | str | list[Any] | dict[str, Any] | None:
+    """Convert a raw ZCL value to a ha-form compatible value."""
+    if value is None:
+        return None
+
+    if _is_subclass(attr_type, zigpy.types.Bool):
+        return bool(value)
+    if _is_subclass(attr_type, enum.Flag) and attr_type.__members__:
+        try:
+            flag_value = value if isinstance(value, enum.Flag) else attr_type(value)
+        except TypeError, ValueError:
+            return []
+        # Only include single-bit members (exclude composite aliases).
+        return [
+            _member_display_name(name)
+            for name, member in attr_type.__members__.items()
+            if member.value
+            and not (member.value & (member.value - 1))
+            and member in flag_value
+        ]
+    if _is_subclass(attr_type, zigpy.types.Struct):
+        return _struct_attribute_value_to_form_value(value, attr_type)
+    if _is_subclass(attr_type, enum.Enum) and attr_type.__members__:
+        return (
+            _member_display_name(value.name)
+            if isinstance(value, enum.Enum)
+            else str(value)
+        )
+    if _is_subclass(attr_type, zigpy.types.FixedIntType):
+        return int(value)
+    if _is_subclass(attr_type, zigpy.types.BaseFloat):
+        return float(value)
+    if _is_text_like_zcl_type(attr_type):
+        if _is_subclass(attr_type, zigpy.types.SerializableBytes):
+            if isinstance(value, zigpy.types.SerializableBytes):
+                return bytes(value.value).hex()
+            if isinstance(value, bytes | bytearray):
+                return bytes(value).hex()
+        if _is_subclass(attr_type, bytes):
+            if isinstance(value, bytes | bytearray | memoryview):
+                return bytes(value).hex()
+        return str(value)
+    if _is_subclass(attr_type, list):
+        return _list_attribute_value_to_form_value(value, attr_type)
+    return str(value)
+
+
+def _coerce_form_bool_value(form_value: Any) -> bool:
+    """Convert service form input to a strict bool value."""
+    if isinstance(form_value, bool):
+        return form_value
+
+    raise ValueError(
+        f"Boolean attributes only accept True/False values: {form_value!r}"
+    )
+
+
+def _coerce_form_flag_value(form_value: Any, attr_type: type[Any]) -> Any:
+    """Convert service form input to a Zigpy flag value."""
+    if not isinstance(form_value, list):
+        raise TypeError("Flag attributes require a list of selected option names")
+
+    result = attr_type(0)
+    for flag_name in form_value:
+        if not isinstance(flag_name, str):
+            raise TypeError("Flag attributes require list items to be strings")
+        normalized_flag = flag_name.replace(" ", "_").split(".", 1)[-1]
+        try:
+            result = result | attr_type[normalized_flag]
+        except KeyError as err:
+            raise ValueError(
+                f"Invalid flag member {flag_name!r} for {attr_type.__name__}"
+            ) from err
+    return result
+
+
+def _coerce_form_struct_value(form_value: Any, attr_type: type[Any]) -> Any:
+    """Convert service form input to a zigpy struct value."""
+    if isinstance(form_value, attr_type):
+        return form_value
+
+    if not isinstance(form_value, dict):
+        raise TypeError("Struct attributes require a dictionary payload")
+
+    converted_fields: dict[str, Any] = {}
+    field_by_name = {field.name: field for field in attr_type.fields}
+    unknown_keys = set(form_value) - set(field_by_name)
+    if unknown_keys:
+        raise ValueError(
+            f"Unexpected struct field(s) for {attr_type.__name__}: {sorted(unknown_keys)}"
+        )
+
+    for field_name, field in field_by_name.items():
+        if field_name in form_value:
+            converted_fields[field_name] = form_value_to_attribute_value(
+                form_value[field_name], field.type
+            )
+        elif not field.optional:
+            raise ValueError(
+                f"Missing required struct field {field_name!r} for {attr_type.__name__}"
+            )
+    return attr_type(**converted_fields)
+
+
+def _coerce_form_list_value(form_value: Any, attr_type: type[Any]) -> Any:
+    """Convert service form input to a zigpy list-like value."""
+    if isinstance(form_value, attr_type):
+        return form_value
+
+    if not isinstance(form_value, tuple | list):
+        raise TypeError("List-like attributes require a list/tuple value")
+
+    raw_values: list[Any] = list(form_value)
+    if raw_values and all(isinstance(item, dict) for item in raw_values):
+        converted_items: list[Any] = []
+        for item in raw_values:
+            if "value" not in item:
+                raise ValueError(
+                    "List-like attributes require each list item to include a 'value' field"
+                )
+            converted_items.append(item["value"])
+        raw_values = converted_items
+
+    item_type = getattr(attr_type, "_item_type", None)
+    if isinstance(item_type, type):
+        raw_values = [
+            form_value_to_attribute_value(item, item_type) for item in raw_values
+        ]
+
+    expected_length = getattr(attr_type, "_length", None)
+    if isinstance(expected_length, int) and len(raw_values) != expected_length:
+        raise ValueError(
+            f"{attr_type.__name__} requires exactly {expected_length} item(s), got {len(raw_values)}"
+        )
+
+    return attr_type(raw_values)
+
+
+def _coerce_form_enum_value(form_value: Any, attr_type: type[Any]) -> Any:
+    """Convert service form input to an enum value."""
+    if isinstance(form_value, str):
+        try:
+            return attr_type[form_value.replace(" ", "_").split(".", 1)[-1]]
+        except KeyError as err:
+            raise ValueError(
+                f"Invalid enum member {form_value!r} for {attr_type.__name__}"
+            ) from err
+
+    try:
+        return attr_type(form_value)
+    except (TypeError, ValueError) as err:
+        raise ValueError(
+            f"Invalid enum value {form_value!r} for {attr_type.__name__}"
+        ) from err
+
+
+def _coerce_form_fixed_int_value(form_value: Any, attr_type: type[Any]) -> Any:
+    """Convert service form input to an integer-like zigpy value."""
+    if isinstance(form_value, bool):
+        raise TypeError(
+            f"Invalid integer value {form_value!r} for {attr_type.__name__}"
+        )
+    if isinstance(form_value, float):
+        if not form_value.is_integer():
+            raise ValueError(
+                f"Invalid integer value {form_value!r} for {attr_type.__name__}"
+            )
+        coerced_form_value = int(form_value)
+    elif isinstance(form_value, int):
+        coerced_form_value = form_value
+    else:
+        raise TypeError(
+            f"Invalid integer value {form_value!r} for {attr_type.__name__}"
+        )
+
+    try:
+        return attr_type(coerced_form_value)
+    except (TypeError, ValueError) as err:
+        raise ValueError(
+            f"Invalid integer value {form_value!r} for {attr_type.__name__}"
+        ) from err
+
+
+def _coerce_form_float_value(form_value: Any, attr_type: type[Any]) -> Any:
+    """Convert service form input to a float-like zigpy value."""
+    if isinstance(form_value, bool) or not isinstance(form_value, int | float):
+        raise TypeError(f"Invalid float value {form_value!r} for {attr_type.__name__}")
+    try:
+        return attr_type(float(form_value))
+    except (TypeError, ValueError) as err:
+        raise ValueError(
+            f"Invalid float value {form_value!r} for {attr_type.__name__}"
+        ) from err
+
+
+def _coerce_form_bytes_value(form_value: Any, attr_type: type[Any]) -> bytes:
+    """Convert service form input to bytes from hex text."""
+    if not isinstance(form_value, str):
+        raise TypeError(f"Invalid hex value {form_value!r} for {attr_type.__name__}")
+
+    try:
+        return bytes.fromhex(form_value)
+    except ValueError as err:
+        raise ValueError(
+            f"Invalid hex value {form_value!r} for {attr_type.__name__}"
+        ) from err
+
+
+def form_value_to_attribute_value(form_value: Any, attr_type: type[Any]) -> Any:
+    """Convert a ha-form value back to a raw ZCL value."""
+    if form_value is None:
+        return None
+
+    try:
+        if _is_subclass(attr_type, zigpy.types.Bool):
+            return _coerce_form_bool_value(form_value)
+        if _is_subclass(attr_type, enum.Flag) and attr_type.__members__:
+            return _coerce_form_flag_value(form_value, attr_type)
+        if _is_subclass(attr_type, zigpy.types.Struct):
+            return _coerce_form_struct_value(form_value, attr_type)
+        if _is_subclass(attr_type, enum.Enum) and attr_type.__members__:
+            return _coerce_form_enum_value(form_value, attr_type)
+        if _is_subclass(attr_type, zigpy.types.FixedIntType):
+            return _coerce_form_fixed_int_value(form_value, attr_type)
+        if _is_subclass(attr_type, zigpy.types.BaseFloat):
+            return _coerce_form_float_value(form_value, attr_type)
+        if _is_subclass(attr_type, zigpy.types.SerializableBytes):
+            return attr_type(_coerce_form_bytes_value(form_value, attr_type))
+        if _is_subclass(attr_type, bytes):
+            return attr_type(_coerce_form_bytes_value(form_value, attr_type))
+        if _is_subclass(attr_type, (zigpy.types.EUI64, zigpy.types.KeyData)):
+            if isinstance(form_value, attr_type):
+                return form_value
+            if isinstance(form_value, str):
+                return attr_type.convert(form_value)
+            raise ValueError(
+                f"Invalid {attr_type.__name__} value {form_value!r} for {attr_type.__name__}"
+            )
+        if _is_subclass(attr_type, list):
+            return _coerce_form_list_value(form_value, attr_type)
+        if _is_subclass(attr_type, str):
+            return attr_type(str(form_value))
+    except TypeError as err:
+        raise ValueError(str(err)) from err
+
+    return form_value
+
+
 def convert_to_zcl_values(
-    fields: dict[str, Any], schema: CommandSchema
+    fields: Mapping[str, Any], schema: type[CommandSchema]
 ) -> dict[str, Any]:
     """Convert user input to ZCL values."""
     converted_fields: dict[str, Any] = {}
     for field in schema.fields:
         if field.name not in fields:
             continue
-        value = fields[field.name]
-        if issubclass(field.type, enum.Flag) and isinstance(value, list):
-            # Zigpy internal bitmap types are int subclasses as well
-            assert issubclass(field.type, int)
-            new_value = 0
-
-            for flag in value:
-                if isinstance(flag, str):
-                    new_value |= field.type[flag.replace(" ", "_")]
-                else:
-                    new_value |= flag
-
-            value = field.type(new_value)
-        elif issubclass(field.type, enum.Enum):
-            value = (
-                field.type[value.replace(" ", "_")]
-                if isinstance(value, str)
-                else field.type(value)
-            )
-        else:
-            value = field.type(value)
+        value = form_value_to_attribute_value(fields[field.name], field.type)
         _LOGGER.debug(
             "Converted ZCL schema field(%s) value from: %s to: %s",
             field.name,

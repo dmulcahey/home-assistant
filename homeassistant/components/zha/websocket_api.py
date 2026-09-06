@@ -25,8 +25,6 @@ from zha.application.const import (
     ATTR_WARNING_DEVICE_STROBE_DUTY_CYCLE,
     ATTR_WARNING_DEVICE_STROBE_INTENSITY,
     CLUSTER_COMMAND_SERVER,
-    CLUSTER_COMMANDS_CLIENT,
-    CLUSTER_COMMANDS_SERVER,
     CLUSTER_TYPE_IN,
     CLUSTER_TYPE_OUT,
     ZHA_GW_MSG,
@@ -46,16 +44,22 @@ from zha.application.platforms.siren import (
     StrobeLevel,
     WarningMode,
 )
+from zha.exceptions import ZHAException
+from zha.zigbee.device import Device
 from zha.zigbee.group import GroupMemberReference
 import zigpy.backups
 from zigpy.config import CONF_DEVICE
 from zigpy.config.validators import cv_boolean
+import zigpy.exceptions
+import zigpy.types
 from zigpy.types.named import EUI64, KeyData
 from zigpy.typing import (
     UNDEFINED as ZIGPY_UNDEFINED,
     UndefinedType as ZigpyUndefinedType,
 )
+from zigpy.zcl import Cluster
 from zigpy.zcl.clusters.security import IasAce
+import zigpy.zcl.foundation as zcl_f
 import zigpy.zdo.types as zdo_types
 
 from homeassistant.components import websocket_api
@@ -90,7 +94,10 @@ from .helpers import (
     EntityReference,
     ZHAGatewayProxy,
     async_cluster_exists,
+    attribute_type_to_vol_schema,
+    attribute_value_to_form_value,
     cluster_command_schema_to_vol_schema,
+    form_value_to_attribute_value,
     get_config_entry,
     get_zha_gateway,
     get_zha_gateway_proxy,
@@ -152,6 +159,132 @@ SERVICE_PERMIT_PARAMS: VolDictType = {
     vol.Exclusive(ATTR_QR_CODE, "install_code"): vol.All(cv.string, qr_to_install_code),
 }
 
+
+def _prepare_cluster_attribute_write_values(
+    zha_device: Device,
+    endpoint_id: int,
+    cluster_id: int,
+    cluster_type: str,
+    attribute: int | str,
+    manufacturer: int | ZigpyUndefinedType,
+    raw_value: Any,
+) -> tuple[Cluster | None, Any, Any]:
+    """Resolve cluster/type and prepare converted values for attribute writes."""
+    converted_value = raw_value
+    write_value = raw_value
+
+    try:
+        cluster = zha_device.async_get_cluster(
+            endpoint_id, cluster_id, cluster_type=cluster_type
+        )
+    except KeyError:
+        return None, converted_value, write_value
+
+    try:
+        attr_type = cluster.find_attribute(
+            attribute, manufacturer_code=manufacturer
+        ).type
+    except KeyError, ValueError:
+        return cluster, converted_value, write_value
+
+    if attr_type is None:
+        return cluster, converted_value, write_value
+
+    converted_value = form_value_to_attribute_value(raw_value, attr_type)
+    write_value = converted_value
+
+    if isinstance(attr_type, type) and issubclass(
+        attr_type, zigpy.types.SerializableBytes
+    ):
+        # write_zigbee_attribute converts this type internally.
+        write_value = raw_value
+
+    return cluster, converted_value, write_value
+
+
+def _attribute_fixed_length(attr_type: type[Any] | None) -> int | None:
+    """Return fixed list length metadata for list-like form attributes."""
+    if attr_type is None:
+        return None
+
+    try:
+        if issubclass(attr_type, zigpy.types.EUI64):
+            return None
+        if issubclass(attr_type, zigpy.types.KeyData):
+            return None
+        if issubclass(attr_type, list):
+            fixed_length = getattr(attr_type, "_length", None)
+            if isinstance(fixed_length, int):
+                return fixed_length
+    except TypeError:
+        return None
+
+    return None
+
+
+def _serialize_manufacturer_code(
+    manufacturer_code: int | ZigpyUndefinedType | None,
+) -> int | None:
+    """Serialize zigpy manufacturer-code sentinel values."""
+    if manufacturer_code is ZIGPY_UNDEFINED or manufacturer_code is None:
+        return None
+    return int(manufacturer_code)
+
+
+def _serialize_zcl_attribute_definition(
+    attr_def: zcl_f.ZCLAttributeDef,
+) -> dict[str, Any]:
+    """Serialize a ZCLAttributeDef payload for the frontend."""
+    return {
+        ID: int(attr_def.id),
+        ATTR_NAME: attr_def.name,
+        ATTR_TYPE: attr_def.type.__name__ if attr_def.type is not None else None,
+        "zcl_type": int(attr_def.zcl_type) if attr_def.zcl_type is not None else None,
+        "access": attr_def.access.value if attr_def.access is not None else None,
+        "mandatory": attr_def.mandatory,
+        "is_manufacturer_specific": attr_def.is_manufacturer_specific,
+        "manufacturer_code": _serialize_manufacturer_code(attr_def.manufacturer_code),
+    }
+
+
+def _get_cluster_attribute_definitions(cluster: Cluster) -> list[zcl_f.ZCLAttributeDef]:
+    """Return all attribute definitions, including manufacturer-specific duplicates."""
+    return [cast(zcl_f.ZCLAttributeDef, attr_def) for attr_def in cluster.AttributeDefs]
+
+
+def _serialize_zcl_command_definition(
+    command_def: zcl_f.ZCLCommandDef, command_type: str
+) -> dict[str, Any]:
+    """Serialize a ZCLCommandDef payload for the frontend."""
+    return {
+        ID: int(command_def.id),
+        ATTR_NAME: command_def.name,
+        "command_type": command_type,
+        "is_manufacturer_specific": command_def.is_manufacturer_specific,
+        "manufacturer_code": _serialize_manufacturer_code(
+            command_def.manufacturer_code
+        ),
+    }
+
+
+type CommandDefinition = tuple[str, zcl_f.ZCLCommandDef]
+
+
+def _get_cluster_command_definitions(cluster: Cluster) -> list[CommandDefinition]:
+    """Return command definitions from Zigpy client/server command defs."""
+    commands: list[CommandDefinition] = []
+    commands.extend(
+        (CLIENT, cast(zcl_f.ZCLCommandDef, command_def))
+        for command_def in cluster.ClientCommandDefs
+    )
+    commands.extend(
+        (CLUSTER_COMMAND_SERVER, cast(zcl_f.ZCLCommandDef, command_def))
+        for command_def in cluster.ServerCommandDefs
+    )
+
+    return commands
+
+
 SERVICE_SCHEMAS: dict[str, VolSchemaType] = {
     SERVICE_PERMIT: vol.Schema(
         vol.All(
@@ -172,9 +305,9 @@ SERVICE_SCHEMAS: dict[str, VolSchemaType] = {
             vol.Required(ATTR_CLUSTER_ID): cv.positive_int,
             vol.Optional(ATTR_CLUSTER_TYPE, default=CLUSTER_TYPE_IN): cv.string,
             vol.Required(ATTR_ATTRIBUTE): vol.Any(cv.positive_int, str),
-            vol.Required(ATTR_VALUE): vol.Any(int, cv.boolean, cv.string),
+            vol.Required(ATTR_VALUE): vol.Any(bool, int, float, str, list, dict),
             vol.Optional(ATTR_MANUFACTURER): vol.All(
-                vol.Coerce(int), vol.Range(min=-1)
+                vol.Coerce(int), vol.Range(min=0, max=0xFFFF)
             ),
         }
     ),
@@ -226,7 +359,7 @@ SERVICE_SCHEMAS: dict[str, VolSchemaType] = {
                 vol.Exclusive(ATTR_ARGS, "attrs_params"): _ensure_list_if_present,
                 vol.Exclusive(ATTR_PARAMS, "attrs_params"): dict,
                 vol.Optional(ATTR_MANUFACTURER): vol.All(
-                    vol.Coerce(int), vol.Range(min=-1)
+                    vol.Coerce(int), vol.Range(min=-1, max=0xFFFF)
                 ),
             }
         ),
@@ -741,14 +874,32 @@ async def websocket_device_cluster_attributes(
     cluster_type: str = msg[ATTR_CLUSTER_TYPE]
     cluster_attributes: list[dict[str, Any]] = []
     zha_device = zha_gateway.get_device(ieee)
-    attributes = None
     if zha_device is not None:
-        attributes = zha_device.async_get_cluster_attributes(
-            endpoint_id, cluster_id, cluster_type
+        from probatio import to_field_list  # noqa: PLC0415
+
+        cluster = zha_device.async_get_cluster(
+            endpoint_id, cluster_id, cluster_type=cluster_type
         )
-        if attributes is not None:
-            for attr_id, attr in attributes.items():
-                cluster_attributes.append({ID: attr_id, ATTR_NAME: attr.name})
+        for attr in _get_cluster_attribute_definitions(cluster):
+            attr_type = attr.type
+
+            response_attr: dict[str, Any] = {
+                "schema": (
+                    to_field_list(
+                        attribute_type_to_vol_schema(attr_type),
+                        custom_serializer=cv.custom_serializer,
+                    )
+                    if attr_type is not None
+                    else []
+                ),
+                "zcl_attribute": _serialize_zcl_attribute_definition(attr),
+            }
+
+            fixed_length = _attribute_fixed_length(attr_type)
+            if fixed_length is not None:
+                response_attr["fixed_length"] = fixed_length
+
+            cluster_attributes.append(response_attr)
     _LOGGER.debug(
         "Requested attributes for: %s: %s, %s: '%s', %s: %s, %s: %s",
         ATTR_CLUSTER_ID,
@@ -788,37 +939,28 @@ async def websocket_device_cluster_commands(
     cluster_type: str = msg[ATTR_CLUSTER_TYPE]
     zha_device = zha_gateway.get_device(ieee)
     cluster_commands: list[dict[str, Any]] = []
-    commands = None
     if zha_device is not None:
-        commands = zha_device.async_get_cluster_commands(
-            endpoint_id, cluster_id, cluster_type
+        cluster = zha_device.async_get_cluster(
+            endpoint_id, cluster_id, cluster_type=cluster_type
         )
+        for command_type, command_def in _get_cluster_command_definitions(cluster):
+            schema = command_def.schema
+            cluster_commands.append(
+                {
+                    "schema": (
+                        to_field_list(
+                            cluster_command_schema_to_vol_schema(schema),
+                            custom_serializer=cv.custom_serializer,
+                        )
+                        if schema is not None
+                        else []
+                    ),
+                    "zcl_command": _serialize_zcl_command_definition(
+                        command_def, command_type
+                    ),
+                }
+            )
 
-        if commands is not None:
-            for cmd_id, cmd in commands[CLUSTER_COMMANDS_CLIENT].items():
-                cluster_commands.append(
-                    {
-                        TYPE: CLIENT,
-                        ID: cmd_id,
-                        ATTR_NAME: cmd.name,
-                        "schema": to_field_list(
-                            cluster_command_schema_to_vol_schema(cmd.schema),
-                            custom_serializer=cv.custom_serializer,
-                        ),
-                    }
-                )
-            for cmd_id, cmd in commands[CLUSTER_COMMANDS_SERVER].items():
-                cluster_commands.append(
-                    {
-                        TYPE: CLUSTER_COMMAND_SERVER,
-                        ID: cmd_id,
-                        ATTR_NAME: cmd.name,
-                        "schema": to_field_list(
-                            cluster_command_schema_to_vol_schema(cmd.schema),
-                            custom_serializer=cv.custom_serializer,
-                        ),
-                    }
-                )
     _LOGGER.debug(
         "Requested commands for: %s: %s, %s: '%s', %s: %s, %s: %s",
         ATTR_CLUSTER_ID,
@@ -842,8 +984,10 @@ async def websocket_device_cluster_commands(
         vol.Required(ATTR_ENDPOINT_ID): int,
         vol.Required(ATTR_CLUSTER_ID): int,
         vol.Required(ATTR_CLUSTER_TYPE): str,
-        vol.Required(ATTR_ATTRIBUTE): int,
-        vol.Optional(ATTR_MANUFACTURER): cv.positive_int,
+        vol.Required(ATTR_ATTRIBUTE): vol.Any(cv.positive_int, str),
+        vol.Optional(ATTR_MANUFACTURER): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=0xFFFF)
+        ),
     }
 )
 @websocket_api.async_response
@@ -856,18 +1000,51 @@ async def websocket_read_zigbee_cluster_attributes(
     endpoint_id: int = msg[ATTR_ENDPOINT_ID]
     cluster_id: int = msg[ATTR_CLUSTER_ID]
     cluster_type: str = msg[ATTR_CLUSTER_TYPE]
-    attribute: int = msg[ATTR_ATTRIBUTE]
+    attribute: int | str = msg[ATTR_ATTRIBUTE]
     manufacturer: int | ZigpyUndefinedType = msg.get(ATTR_MANUFACTURER, ZIGPY_UNDEFINED)
     zha_device = zha_gateway.get_device(ieee)
-    success = {}
-    failure = {}
+    failure: dict[int | str, Any] = {}
+    raw_value: Any | None = None
+
     if zha_device is not None:
         cluster = zha_device.async_get_cluster(
             endpoint_id, cluster_id, cluster_type=cluster_type
         )
         success, failure = await cluster.read_attributes(
-            [attribute], allow_cache=False, only_cache=False, manufacturer=manufacturer
+            [attribute],
+            allow_cache=False,
+            only_cache=False,
+            manufacturer=manufacturer,
         )
+        attr_def: zcl_f.ZCLAttributeDef | None
+        try:
+            attr_def = cluster.find_attribute(attribute, manufacturer_code=manufacturer)
+        except TypeError, ValueError, AttributeError, KeyError:
+            attr_def = None
+
+        raw_value = success.get(attribute)
+        if raw_value is None and attr_def is not None:
+            raw_value = success.get(attr_def.id)
+        if raw_value is None and attr_def is not None:
+            raw_value = success.get(attr_def.name)
+
+        if raw_value is not None:
+            attr_type = attr_def.type if attr_def is not None else None
+            if attr_type is None:
+                raw_value = str(raw_value)
+            else:
+                try:
+                    raw_value = attribute_value_to_form_value(raw_value, attr_type)
+                except (TypeError, ValueError, AttributeError, KeyError) as err:
+                    _LOGGER.debug(
+                        "Failed to convert read attribute value for %s in %s on endpoint %s: %s",
+                        attribute,
+                        cluster_id,
+                        endpoint_id,
+                        err,
+                        exc_info=True,
+                    )
+                    raw_value = str(raw_value)
     _LOGGER.debug(
         (
             "Read attribute for: %s: [%s] %s: [%s] %s: [%s] %s: [%s] %s: [%s] %s: [%s]"
@@ -884,11 +1061,11 @@ async def websocket_read_zigbee_cluster_attributes(
         ATTR_MANUFACTURER,
         manufacturer,
         RESPONSE,
-        str(success.get(attribute)),
+        raw_value,
         "failure",
         failure,
     )
-    connection.send_result(msg[ID], str(success.get(attribute)))
+    connection.send_result(msg[ID], raw_value)
 
 
 @websocket_api.require_admin
@@ -1330,21 +1507,52 @@ def async_load_api(hass: HomeAssistant) -> None:
         cluster_id: int = service.data[ATTR_CLUSTER_ID]
         cluster_type: str = service.data[ATTR_CLUSTER_TYPE]
         attribute: int | str = service.data[ATTR_ATTRIBUTE]
-        value: int | bool | str = service.data[ATTR_VALUE]
+        value: Any = service.data[ATTR_VALUE]
         manufacturer: int | ZigpyUndefinedType = service.data.get(
             ATTR_MANUFACTURER, ZIGPY_UNDEFINED
         )
         zha_device = zha_gateway.get_device(ieee)
         response = None
         if zha_device is not None:
-            response = await zha_device.write_zigbee_attribute(
+            raw_value = value
+            cluster, value, write_value = _prepare_cluster_attribute_write_values(
+                zha_device,
                 endpoint_id,
                 cluster_id,
+                cluster_type,
                 attribute,
-                value,
-                cluster_type=cluster_type,
-                manufacturer=manufacturer,
+                manufacturer,
+                raw_value,
             )
+
+            if manufacturer is ZIGPY_UNDEFINED:
+                response = await zha_device.write_zigbee_attribute(
+                    endpoint_id,
+                    cluster_id,
+                    attribute,
+                    write_value,
+                    cluster_type=cluster_type,
+                    manufacturer=manufacturer,
+                )
+            else:
+                if cluster is None:
+                    raise ValueError(
+                        f"Cluster {cluster_id} not found on endpoint {endpoint_id} while"
+                        f" writing attribute {attribute} with value {value}"
+                    )
+
+                try:
+                    response = await cluster.write_attributes(
+                        {attribute: value}, manufacturer=manufacturer
+                    )
+                except zigpy.exceptions.ZigbeeException as exc:
+                    raise ZHAException(
+                        f"Failed to set attribute: "
+                        f"{ATTR_VALUE}: {value} "
+                        f"{ATTR_ATTRIBUTE}: {attribute} "
+                        f"{ATTR_CLUSTER_ID}: {cluster_id} "
+                        f"{ATTR_ENDPOINT_ID}: {endpoint_id}"
+                    ) from exc
         else:
             raise ValueError(f"Device with IEEE {ieee!s} not found")
 
