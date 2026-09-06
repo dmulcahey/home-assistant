@@ -1,0 +1,447 @@
+# serializer version: 1
+# name: test_attribute_type_to_vol_schema_shapes[bool]
+  list([
+    dict({
+      'name': 'value',
+      'required': True,
+      'type': 'boolean',
+    }),
+  ])
+# ---
+# name: test_attribute_type_to_vol_schema_shapes[bytes]
+  list([
+    dict({
+      'name': 'value',
+      'required': True,
+      'type': 'string',
+    }),
+  ])
+# ---
+# name: test_attribute_type_to_vol_schema_shapes[enum]
+  list([
+    dict({
+      'name': 'value',
+      'options': list([
+        tuple(
+          'Option A',
+          'Option A',
+        ),
+        tuple(
+          'Option B',
+          'Option B',
+        ),
+      ]),
+      'required': True,
+      'type': 'select',
+    }),
+  ])
+# ---
+# name: test_attribute_type_to_vol_schema_shapes[eui64]
+  list([
+    dict({
+      'name': 'value',
+      'required': True,
+      'type': 'string',
+    }),
+  ])
+# ---
+# name: test_attribute_type_to_vol_schema_shapes[flags]
+  list([
+    dict({
+      'name': 'value',
+      'options': dict({
+        'Option A': 'Option A',
+        'Option B': 'Option B',
+      }),
+      'required': True,
+      'type': 'multi_select',
+    }),
+  ])
+# ---
+# name: test_attribute_type_to_vol_schema_shapes[float]
+  list([
+    dict({
+      'name': 'value',
+      'required': True,
+      'selector': dict({
+        'number': dict({
+          'mode': 'box',
+          'step': 'any',
+        }),
+      }),
+    }),
+  ])
+# ---
+# name: test_attribute_type_to_vol_schema_shapes[integer]
+  list([
+    dict({
+      'name': 'value',
+      'required': True,
+      'selector': dict({
+        'number': dict({
+          'max': 255.0,
+          'min': 0.0,
+          'mode': 'box',
+          'step': 1.0,
+        }),
+      }),
+    }),
+  ])
+# ---
+# name: test_attribute_type_to_vol_schema_shapes[key_data]
+  list([
+    dict({
+      'name': 'value',
+      'required': True,
+      'type': 'string',
+    }),
+  ])
+# ---
+# name: test_attribute_type_to_vol_schema_shapes[large_integer]
+  list([
+    dict({
+      'name': 'value',
+      'required': True,
+      'selector': dict({
+        'text': dict({
+          'multiline': False,
+          'multiple': False,
+        }),
+      }),
+    }),
+  ])
+# ---
+# name: test_attribute_type_to_vol_schema_shapes[list]
+  list([
+    dict({
+      'name': 'value',
+      'required': True,
+      'selector': dict({
+        'object': dict({
+          'fields': dict({
+            'value': dict({
+              'required': True,
+              'selector': dict({
+                'number': dict({
+                  'max': 255.0,
+                  'min': 0.0,
+                  'mode': 'box',
+                  'step': 1.0,
+                }),
+              }),
+            }),
+          }),
+          'label_field': 'value',
+          'multiple': True,
+        }),
+      }),
+    }),
+  ])
+# ---
+# name: test_attribute_type_to_vol_schema_shapes[nested_large_integer]
+  list([
+    dict({
+      'name': 'value',
+      'required': True,
+      'selector': dict({
+        'object': dict({
+          'fields': dict({
+            'signed': dict({
+              'required': True,
+              'selector': dict({
+                'text': dict({
+                  'multiline': False,
+                  'multiple': False,
+                }),
+              }),
+            }),
+            'unsigned': dict({
+              'required': True,
+              'selector': dict({
+                'object': dict({
+                  'fields': dict({
+                    'value': dict({
+                      'required': True,
+                      'selector': dict({
+                        'text': dict({
+                          'multiline': False,
+                          'multiple': False,
+                        }),
+                      }),
+                    }),
+                  }),
+                  'label_field': 'value',
+                  'multiple': True,
+                }),
+              }),
+            }),
+          }),
+          'label_field': 'signed',
+          'multiple': False,
+        }),
+      }),
+    }),
+  ])
+# ---
+# name: test_attribute_type_to_vol_schema_shapes[nested_struct]
+  list([
+    dict({
+      'name': 'value',
+      'required': True,
+      'selector': dict({
+        'object': dict({
+          'fields': dict({
+            'bool_field': dict({
+              'required': True,
+              'selector': dict({
+                'boolean': dict({
+                }),
+              }),
+            }),
+            'enum_field': dict({
+              'required': True,
+              'selector': dict({
+                'select': dict({
+                  'custom_value': False,
+                  'multiple': False,
+                  'options': list([
+                    'Option A',
+                    'Option B',
+                  ]),
+                  'sort': False,
+                }),
+              }),
+            }),
+            'fallback_field': dict({
+              'required': True,
+              'selector': dict({
+                'text': dict({
+                  'multiline': False,
+                  'multiple': False,
+                }),
+              }),
+            }),
+            'flag_field': dict({
+              'required': True,
+              'selector': dict({
+                'select': dict({
+                  'custom_value': False,
+                  'multiple': True,
+                  'options': list([
+                    'Option A',
+                    'Option B',
+                  ]),
+                  'sort': False,
+                }),
+              }),
+            }),
+            'float_field': dict({
+              'required': True,
+              'selector': dict({
+                'number': dict({
+                  'mode': 'box',
+                  'step': 'any',
+                }),
+              }),
+            }),
+            'int_field': dict({
+              'required': True,
+              'selector': dict({
+                'number': dict({
+                  'max': 255.0,
+                  'min': 0.0,
+                  'mode': 'box',
+                  'step': 1.0,
+                }),
+              }),
+            }),
+            'list_field': dict({
+              'required': True,
+              'selector': dict({
+                'object': dict({
+                  'fields': dict({
+                    'value': dict({
+                      'required': True,
+                      'selector': dict({
+                        'number': dict({
+                          'max': 255.0,
+                          'min': 0.0,
+                          'mode': 'box',
+                          'step': 1.0,
+                        }),
+                      }),
+                    }),
+                  }),
+                  'label_field': 'value',
+                  'multiple': True,
+                }),
+              }),
+            }),
+            'struct_field': dict({
+              'required': True,
+              'selector': dict({
+                'object': dict({
+                  'fields': dict({
+                    'nested_field': dict({
+                      'required': True,
+                      'selector': dict({
+                        'number': dict({
+                          'max': 255.0,
+                          'min': 0.0,
+                          'mode': 'box',
+                          'step': 1.0,
+                        }),
+                      }),
+                    }),
+                  }),
+                  'label_field': 'nested_field',
+                  'multiple': False,
+                }),
+              }),
+            }),
+            'text_field': dict({
+              'required': True,
+              'selector': dict({
+                'text': dict({
+                  'multiline': False,
+                  'multiple': False,
+                }),
+              }),
+            }),
+          }),
+          'label_field': 'bool_field',
+          'multiple': False,
+        }),
+      }),
+    }),
+  ])
+# ---
+# name: test_attribute_type_to_vol_schema_shapes[struct]
+  list([
+    dict({
+      'name': 'value',
+      'required': True,
+      'selector': dict({
+        'object': dict({
+          'fields': dict({
+            'field_a': dict({
+              'required': True,
+              'selector': dict({
+                'number': dict({
+                  'max': 255.0,
+                  'min': 0.0,
+                  'mode': 'box',
+                  'step': 1.0,
+                }),
+              }),
+            }),
+            'field_b': dict({
+              'required': True,
+              'selector': dict({
+                'number': dict({
+                  'max': 65535.0,
+                  'min': 0.0,
+                  'mode': 'box',
+                  'step': 1.0,
+                }),
+              }),
+            }),
+          }),
+          'label_field': 'field_a',
+          'multiple': False,
+        }),
+      }),
+    }),
+  ])
+# ---
+# name: test_zcl_schema_conversions
+  list([
+    dict({
+      'name': 'update_flags',
+      'options': dict({
+        'Action': 'Action',
+        'Direction': 'Direction',
+        'Start Hue': 'Start Hue',
+        'Time': 'Time',
+      }),
+      'required': True,
+      'type': 'multi_select',
+    }),
+    dict({
+      'name': 'action',
+      'options': list([
+        tuple(
+          'Deactivate',
+          'Deactivate',
+        ),
+        tuple(
+          'Activate from color loop hue',
+          'Activate from color loop hue',
+        ),
+        tuple(
+          'Activate from current hue',
+          'Activate from current hue',
+        ),
+      ]),
+      'required': True,
+      'type': 'select',
+    }),
+    dict({
+      'name': 'direction',
+      'options': list([
+        tuple(
+          'Decrement',
+          'Decrement',
+        ),
+        tuple(
+          'Increment',
+          'Increment',
+        ),
+      ]),
+      'required': True,
+      'type': 'select',
+    }),
+    dict({
+      'name': 'time',
+      'required': True,
+      'selector': dict({
+        'number': dict({
+          'max': 65535.0,
+          'min': 0.0,
+          'mode': 'box',
+          'step': 1.0,
+        }),
+      }),
+    }),
+    dict({
+      'name': 'start_hue',
+      'required': True,
+      'selector': dict({
+        'number': dict({
+          'max': 65535.0,
+          'min': 0.0,
+          'mode': 'box',
+          'step': 1.0,
+        }),
+      }),
+    }),
+    dict({
+      'name': 'options_mask',
+      'optional': True,
+      'options': dict({
+        'Execute if off present': 'Execute if off present',
+      }),
+      'required': False,
+      'type': 'multi_select',
+    }),
+    dict({
+      'name': 'options_override',
+      'optional': True,
+      'options': dict({
+        'Execute if off': 'Execute if off',
+      }),
+      'required': False,
+      'type': 'multi_select',
+    }),
+  ])
+# ---

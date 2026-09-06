@@ -4,11 +4,13 @@ from binascii import unhexlify
 from collections.abc import Callable, Coroutine
 from copy import deepcopy
 import enum
+import logging
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
+from syrupy.assertion import SnapshotAssertion
 import voluptuous as vol
 from zha.application.const import (
     ATTR_ARGS,
@@ -43,7 +45,7 @@ import zigpy.types
 from zigpy.types.named import EUI64
 from zigpy.typing import UNDEFINED as ZIGPY_UNDEFINED
 import zigpy.util
-from zigpy.zcl import foundation
+from zigpy.zcl import Cluster, foundation
 from zigpy.zcl.clusters import closures, general, security
 from zigpy.zcl.clusters.general import Groups
 import zigpy.zdo.types as zdo_types
@@ -78,7 +80,6 @@ from homeassistant.components.zha.websocket_api import (
     SERVICE_PERMIT,
     SERVICE_SET_ZIGBEE_CLUSTER_ATTRIBUTE,
     TYPE,
-    _attribute_fixed_length,
     async_load_api,
 )
 from homeassistant.const import ATTR_AREA_ID, ATTR_MODEL, ATTR_NAME, Platform
@@ -96,7 +97,7 @@ IEEE_SWITCH_DEVICE = "01:2d:6f:00:0a:90:69:e7"
 IEEE_GROUPABLE_DEVICE = "01:2d:6f:00:0a:90:69:e8"
 
 
-class _ServiceTestFlags(enum.Flag):
+class _ServiceTestFlags(zigpy.types.bitmap8):
     """Flag enum used to validate service value conversion."""
 
     Option_A = 1
@@ -115,6 +116,13 @@ class _ServiceTestStruct(zigpy.types.Struct):
 
     field_a: zigpy.types.uint8_t
     field_b: zigpy.types.uint16_t
+
+
+class _CommandBytesStruct(zigpy.types.Struct):
+    """Command payload containing nested serializable bytes."""
+
+    sequence: zigpy.types.uint8_t
+    payload: zigpy.types.SerializableBytes
 
 
 class _ServiceTestList(list):
@@ -217,6 +225,16 @@ async def zha_client(
     return await hass_ws_client(hass)
 
 
+@pytest.fixture
+def on_off_cluster(hass: HomeAssistant, zha_client: MockHAClientWebSocket) -> Cluster:
+    """Return the switch cluster used by attribute and command tests."""
+    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
+    assert zha_device is not None
+    return zha_device.async_get_cluster(
+        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
+    )
+
+
 async def test_device_clusters(
     hass: HomeAssistant, zha_client: MockHAClientWebSocket
 ) -> None:
@@ -242,7 +260,9 @@ async def test_device_clusters(
     assert cluster_info[ATTR_NAME] == "OnOff"
 
 
-async def test_device_cluster_attributes(zha_client: MockHAClientWebSocket) -> None:
+async def test_device_cluster_attributes(
+    zha_client: MockHAClientWebSocket, snapshot: SnapshotAssertion
+) -> None:
     """Test getting device cluster attributes."""
     await zha_client.send_json(
         {
@@ -257,51 +277,7 @@ async def test_device_cluster_attributes(zha_client: MockHAClientWebSocket) -> N
 
     msg = await zha_client.receive_json()
 
-    attributes = msg["result"]
-    assert attributes
-
-    for attribute in attributes:
-        assert "schema" in attribute
-        assert "zcl_attribute" in attribute
-        assert ID not in attribute
-        assert ATTR_NAME not in attribute
-        assert "manufacturer_code" not in attribute
-        assert isinstance(attribute["schema"], list)
-        assert attribute["zcl_attribute"][ID] is not None
-        assert attribute["zcl_attribute"][ATTR_NAME] is not None
-
-    expected_ids = {int(attr.id) for attr in general.OnOff.AttributeDefs}
-    result_ids = {entry["zcl_attribute"][ID] for entry in attributes}
-    assert expected_ids.issubset(result_ids)
-
-    on_off_attribute = next(
-        attr
-        for attr in attributes
-        if attr["zcl_attribute"][ID] == general.OnOff.AttributeDefs.on_off.id
-    )
-    assert on_off_attribute["schema"] == [
-        {"type": "boolean", "name": "value", "required": True}
-    ]
-
-    off_wait_time_attribute = next(
-        attr
-        for attr in attributes
-        if attr["zcl_attribute"][ID] == general.OnOff.AttributeDefs.off_wait_time.id
-    )
-    assert off_wait_time_attribute["schema"] == [
-        {
-            "selector": {
-                "number": {
-                    "min": 0.0,
-                    "max": 65535.0,
-                    "step": 1.0,
-                    "mode": "box",
-                }
-            },
-            "name": "value",
-            "required": True,
-        }
-    ]
+    assert msg["result"] == snapshot
 
 
 async def test_device_cluster_attributes_invalid_cluster_returns_error(
@@ -327,14 +303,11 @@ async def test_device_cluster_attributes_invalid_cluster_returns_error(
 
 
 async def test_device_cluster_attributes_complex_schema_shapes(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
+    zha_client: MockHAClientWebSocket,
+    snapshot: SnapshotAssertion,
+    on_off_cluster: Cluster,
 ) -> None:
     """Test websocket schema serialization for complex attribute types."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
 
     attrs = [
         foundation.ZCLAttributeDef(
@@ -356,9 +329,13 @@ async def test_device_cluster_attributes_complex_schema_shapes(
             type=zigpy.types.Single,
             zcl_type=foundation.DataTypeId.single,
         ),
+        foundation.ZCLAttributeDef(id=105, name="custom_eui64", type=zigpy.types.EUI64),
+        foundation.ZCLAttributeDef(
+            id=106, name="custom_key_data", type=zigpy.types.KeyData
+        ),
     ]
 
-    with patch.object(cluster, "AttributeDefs", attrs):
+    with patch.object(on_off_cluster, "AttributeDefs", attrs):
         await zha_client.send_json(
             {
                 ID: 55,
@@ -371,94 +348,13 @@ async def test_device_cluster_attributes_complex_schema_shapes(
         )
         msg = await zha_client.receive_json()
 
-    by_id = {entry["zcl_attribute"][ID]: entry for entry in msg["result"]}
-    assert by_id[101]["schema"] == [
-        {
-            "selector": {
-                "object": {
-                    "multiple": False,
-                    "label_field": "field_a",
-                    "fields": {
-                        "field_a": {
-                            "required": True,
-                            "selector": {
-                                "number": {
-                                    "min": 0.0,
-                                    "max": 255.0,
-                                    "step": 1,
-                                    "mode": "box",
-                                }
-                            },
-                        },
-                        "field_b": {
-                            "required": True,
-                            "selector": {
-                                "number": {
-                                    "min": 0.0,
-                                    "max": 65535.0,
-                                    "step": 1,
-                                    "mode": "box",
-                                }
-                            },
-                        },
-                    },
-                }
-            },
-            "name": "value",
-            "required": True,
-        }
-    ]
-    assert by_id[102]["schema"] == [
-        {
-            "selector": {
-                "object": {
-                    "multiple": True,
-                    "label_field": "value",
-                    "fields": {
-                        "value": {
-                            "required": True,
-                            "selector": {
-                                "number": {
-                                    "min": 0.0,
-                                    "max": 255.0,
-                                    "step": 1,
-                                    "mode": "box",
-                                }
-                            },
-                        }
-                    },
-                }
-            },
-            "name": "value",
-            "required": True,
-        }
-    ]
-    assert by_id[103]["fixed_length"] == 2
-    assert by_id[104]["schema"] == [
-        {
-            "selector": {"number": {"step": "any", "mode": "box"}},
-            "name": "value",
-            "required": True,
-        }
-    ]
-
-
-def test_attribute_fixed_length_helper_special_cases() -> None:
-    """Test fixed-length helper edge cases for non-list and special list types."""
-    assert _attribute_fixed_length(zigpy.types.EUI64) is None
-    assert _attribute_fixed_length(zigpy.types.KeyData) is None
-    assert _attribute_fixed_length(cast(Any, 1)) is None
+    assert msg["result"] == snapshot
 
 
 async def test_device_cluster_attributes_no_type_has_empty_schema(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
+    zha_client: MockHAClientWebSocket, on_off_cluster: Cluster
 ) -> None:
     """Test websocket attribute schema is empty when attribute type is unknown."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attr_without_type = SimpleNamespace(
         id=105,
         name="custom_no_type",
@@ -470,7 +366,7 @@ async def test_device_cluster_attributes_no_type_has_empty_schema(
         manufacturer_code=None,
     )
 
-    with patch.object(cluster, "AttributeDefs", [attr_without_type]):
+    with patch.object(on_off_cluster, "AttributeDefs", [attr_without_type]):
         await zha_client.send_json(
             {
                 ID: 58,
@@ -489,14 +385,11 @@ async def test_device_cluster_attributes_no_type_has_empty_schema(
 
 
 async def test_device_cluster_attributes_include_manufacturer_specific_defs(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
+    zha_client: MockHAClientWebSocket,
+    snapshot: SnapshotAssertion,
+    on_off_cluster: Cluster,
 ) -> None:
     """Test websocket includes both standard and manufacturer-specific definitions."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
 
     shared_id = 0x1234
     standard_attr = foundation.ZCLAttributeDef(
@@ -521,7 +414,7 @@ async def test_device_cluster_attributes_include_manufacturer_specific_defs(
     )
 
     with patch.object(
-        cluster,
+        on_off_cluster,
         "AttributeDefs",
         [standard_attr, manufacturer_attr],
     ):
@@ -537,50 +430,7 @@ async def test_device_cluster_attributes_include_manufacturer_specific_defs(
         )
         msg = await zha_client.receive_json()
 
-    attributes = msg["result"]
-    assert len(attributes) == 2
-
-    standard_entry = next(
-        entry
-        for entry in attributes
-        if entry["zcl_attribute"][ATTR_NAME] == "shared_attr"
-    )
-    assert standard_entry["zcl_attribute"][ID] == shared_id
-    assert standard_entry["zcl_attribute"][ATTR_TYPE] == "Bool"
-    assert standard_entry["zcl_attribute"]["zcl_type"] == int(
-        foundation.DataTypeId.bool_
-    )
-    assert (
-        standard_entry["zcl_attribute"]["access"]
-        == foundation.ZCLAttributeAccess.Read.value
-    )
-    assert standard_entry["zcl_attribute"]["mandatory"] is False
-    assert standard_entry["zcl_attribute"]["is_manufacturer_specific"] is False
-    assert standard_entry["zcl_attribute"]["manufacturer_code"] is None
-    assert ID not in standard_entry
-    assert ATTR_NAME not in standard_entry
-    assert "manufacturer_code" not in standard_entry
-
-    manufacturer_entry = next(
-        entry
-        for entry in attributes
-        if entry["zcl_attribute"][ATTR_NAME] == "shared_attr_manufacturer"
-    )
-    assert manufacturer_entry["zcl_attribute"][ID] == shared_id
-    assert manufacturer_entry["zcl_attribute"][ATTR_TYPE] == "Bool"
-    assert manufacturer_entry["zcl_attribute"]["zcl_type"] == int(
-        foundation.DataTypeId.bool_
-    )
-    assert (
-        manufacturer_entry["zcl_attribute"]["access"]
-        == foundation.ZCLAttributeAccess.Read.value
-    )
-    assert manufacturer_entry["zcl_attribute"]["mandatory"] is False
-    assert manufacturer_entry["zcl_attribute"]["is_manufacturer_specific"] is True
-    assert manufacturer_entry["zcl_attribute"]["manufacturer_code"] == 0x1234
-    assert ID not in manufacturer_entry
-    assert ATTR_NAME not in manufacturer_entry
-    assert "manufacturer_code" not in manufacturer_entry
+    assert msg["result"] == snapshot
 
 
 @pytest.mark.parametrize(
@@ -588,32 +438,14 @@ async def test_device_cluster_attributes_include_manufacturer_specific_defs(
     [
         pytest.param(
             _ServiceTestFlags,
-            3,
-            "Flag attributes require",
-            id="rejects_legacy_flag_int_input",
-        ),
-        pytest.param(
-            _ServiceTestFlags,
-            "03",
-            "Flag attributes require",
-            id="rejects_legacy_flag_zero_padded_text_input",
-        ),
-        pytest.param(
-            zigpy.types.Bool,
-            "false",
-            "Boolean attributes only accept",
-            id="rejects_legacy_bool_text_input",
-        ),
-        pytest.param(
-            _ServiceTestFlags,
             ["Not a valid flag"],
-            "Invalid flag member",
+            "Invalid value",
             id="invalid_flag_fails_loudly",
         ),
         pytest.param(
             zigpy.types.Bool,
             "invalid-bool",
-            "Boolean attributes only accept",
+            "Invalid value",
             id="invalid_bool_fails_loudly",
         ),
         pytest.param(
@@ -625,19 +457,19 @@ async def test_device_cluster_attributes_include_manufacturer_specific_defs(
         pytest.param(
             zigpy.types.Single,
             "not-a-float",
-            "Invalid float value",
+            "Invalid value",
             id="invalid_float_fails_loudly",
         ),
         pytest.param(
             bytes,
             "zz-not-hex",
-            "Invalid hex value",
+            "Invalid value",
             id="invalid_bytes_hex_fails_loudly",
         ),
         pytest.param(
             _ServiceTestStruct,
             {"field_a": "invalid", "field_b": 2},
-            "Invalid integer value",
+            "Invalid value",
             id="invalid_struct_fails_loudly",
         ),
         pytest.param(
@@ -650,28 +482,23 @@ async def test_device_cluster_attributes_include_manufacturer_specific_defs(
 )
 async def test_set_cluster_attribute_invalid_value(
     hass: HomeAssistant,
-    zha_client: MockHAClientWebSocket,
     hass_admin_user: MockUser,
     attr_type: type,
     raw_value: JsonValueType,
     error: str,
+    on_off_cluster: Cluster,
 ) -> None:
     """Test invalid form values are rejected before writing to the device."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attribute = general.OnOff.AttributeDefs.on_off.id
-    write_attribute_mock = AsyncMock(return_value=None)
+    write_attribute_mock = AsyncMock(return_value=[[]])
 
     with (
         patch.object(
-            cluster,
+            on_off_cluster,
             "find_attribute",
             return_value=MagicMock(type=attr_type),
         ),
-        patch.object(zha_device, "write_zigbee_attribute", write_attribute_mock),
+        patch.object(on_off_cluster, "write_attributes", write_attribute_mock),
         pytest.raises(ValueError, match=error),
     ):
         await hass.services.async_call(
@@ -693,28 +520,23 @@ async def test_set_cluster_attribute_invalid_value(
 
 
 async def test_set_cluster_attribute_prefers_manufacturer_specific_attribute_type(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
+    hass: HomeAssistant, hass_admin_user: MockUser, on_off_cluster: Cluster
 ) -> None:
     """Test manufacturer-specific attribute defs are used before generic lookup."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attribute = general.OnOff.AttributeDefs.on_off.id
     cluster_write_mock = AsyncMock(return_value=[[]])
-    device_write_mock = AsyncMock(return_value=None)
     manufacturer_code = 0x1234
 
     with (
-        patch.dict(cluster.attributes, {attribute: MagicMock(type=zigpy.types.Bool)}),
+        patch.dict(
+            on_off_cluster.attributes, {attribute: MagicMock(type=zigpy.types.Bool)}
+        ),
         patch.object(
-            cluster,
+            on_off_cluster,
             "find_attribute",
             return_value=MagicMock(type=_ServiceTestEnum),
         ) as find_attribute_mock,
-        patch.object(cluster, "write_attributes", cluster_write_mock),
-        patch.object(zha_device, "write_zigbee_attribute", device_write_mock),
+        patch.object(on_off_cluster, "write_attributes", cluster_write_mock),
     ):
         await hass.services.async_call(
             DOMAIN,
@@ -735,7 +557,6 @@ async def test_set_cluster_attribute_prefers_manufacturer_specific_attribute_typ
     find_attribute_mock.assert_called_once_with(
         attribute, manufacturer_code=manufacturer_code
     )
-    assert device_write_mock.await_count == 0
     assert cluster_write_mock.await_count == 1
     assert cluster_write_mock.await_args.args[0] == {
         attribute: _ServiceTestEnum.Option_B
@@ -744,28 +565,23 @@ async def test_set_cluster_attribute_prefers_manufacturer_specific_attribute_typ
 
 
 async def test_set_cluster_attribute_accepts_attribute_name_with_manufacturer(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
+    hass: HomeAssistant, hass_admin_user: MockUser, on_off_cluster: Cluster
 ) -> None:
     """Test manufacturer-specific writes support attribute names plus manufacturer."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attribute_name = general.OnOff.AttributeDefs.on_off.name
     cluster_write_mock = AsyncMock(return_value=[[]])
     manufacturer_code = 0x1234
 
     with (
         patch.object(
-            cluster,
+            on_off_cluster,
             "find_attribute",
             return_value=MagicMock(
                 id=general.OnOff.AttributeDefs.on_off.id,
                 type=_ServiceTestEnum,
             ),
         ) as find_attribute_mock,
-        patch.object(cluster, "write_attributes", cluster_write_mock),
+        patch.object(on_off_cluster, "write_attributes", cluster_write_mock),
     ):
         await hass.services.async_call(
             DOMAIN,
@@ -794,25 +610,20 @@ async def test_set_cluster_attribute_accepts_attribute_name_with_manufacturer(
 
 
 async def test_set_cluster_attribute_prefers_manufacturer_specific_real_attr_type(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
+    hass: HomeAssistant, hass_admin_user: MockUser, on_off_cluster: Cluster
 ) -> None:
     """Test manufacturer-specific conversion using a real cluster attr definition."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attribute = general.OnOff.AttributeDefs.on_off.id
     manufacturer_code = 0x1234
     cluster_write_mock = AsyncMock(return_value=[[]])
-    device_write_mock = AsyncMock(return_value=None)
     real_attr_def = general.Basic.AttributeDefs.model
 
     with (
-        patch.dict(cluster.attributes, {attribute: MagicMock(type=zigpy.types.Bool)}),
-        patch.object(cluster, "find_attribute", return_value=real_attr_def),
-        patch.object(cluster, "write_attributes", cluster_write_mock),
-        patch.object(zha_device, "write_zigbee_attribute", device_write_mock),
+        patch.dict(
+            on_off_cluster.attributes, {attribute: MagicMock(type=zigpy.types.Bool)}
+        ),
+        patch.object(on_off_cluster, "find_attribute", return_value=real_attr_def),
+        patch.object(on_off_cluster, "write_attributes", cluster_write_mock),
     ):
         await hass.services.async_call(
             DOMAIN,
@@ -830,7 +641,6 @@ async def test_set_cluster_attribute_prefers_manufacturer_specific_real_attr_typ
             context=Context(user_id=hass_admin_user.id),
         )
 
-    assert device_write_mock.await_count == 0
     assert cluster_write_mock.await_count == 1
     converted = cluster_write_mock.await_args.args[0][attribute]
     assert isinstance(converted, real_attr_def.type)
@@ -839,26 +649,23 @@ async def test_set_cluster_attribute_prefers_manufacturer_specific_real_attr_typ
 
 
 async def test_set_cluster_attribute_manufacturer_write_failure_is_normalized(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
+    hass: HomeAssistant, hass_admin_user: MockUser, on_off_cluster: Cluster
 ) -> None:
     """Test manufacturer-specific write failures raise the standard ZHA exception."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attribute = general.OnOff.AttributeDefs.on_off.id
     manufacturer_code = 0x1234
 
     with (
-        patch.dict(cluster.attributes, {attribute: MagicMock(type=zigpy.types.Bool)}),
+        patch.dict(
+            on_off_cluster.attributes, {attribute: MagicMock(type=zigpy.types.Bool)}
+        ),
         patch.object(
-            cluster,
+            on_off_cluster,
             "find_attribute",
             return_value=MagicMock(type=zigpy.types.Bool),
         ),
         patch.object(
-            cluster,
+            on_off_cluster,
             "write_attributes",
             AsyncMock(side_effect=zigpy.exceptions.ZigbeeException("boom")),
         ),
@@ -881,11 +688,13 @@ async def test_set_cluster_attribute_manufacturer_write_failure_is_normalized(
         )
 
 
-async def test_set_cluster_attribute_rejects_manufacturer_minus_one(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
+async def test_set_cluster_attribute_accepts_manufacturer_minus_one(
+    hass: HomeAssistant, hass_admin_user: MockUser, on_off_cluster: Cluster
 ) -> None:
-    """Test service validation rejects the legacy manufacturer=-1 sentinel."""
-    with pytest.raises(vol.Invalid):
+    """Test attribute writes preserve the legacy manufacturer=-1 sentinel."""
+    with patch.object(
+        on_off_cluster, "_write_attributes", return_value=[[]]
+    ) as write_attributes:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_SET_ZIGBEE_CLUSTER_ATTRIBUTE,
@@ -894,7 +703,7 @@ async def test_set_cluster_attribute_rejects_manufacturer_minus_one(
                 ATTR_ENDPOINT_ID: 1,
                 ATTR_CLUSTER_ID: general.OnOff.cluster_id,
                 ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: general.OnOff.AttributeDefs.on_off.name,
+                ATTR_ATTRIBUTE: general.OnOff.AttributeDefs.on_off.id,
                 ATTR_VALUE: True,
                 ATTR_MANUFACTURER: -1,
             },
@@ -902,9 +711,23 @@ async def test_set_cluster_attribute_rejects_manufacturer_minus_one(
             context=Context(user_id=hass_admin_user.id),
         )
 
+    write_attributes.assert_awaited_once()
+    assert write_attributes.call_args.kwargs["manufacturer"] is None
+    record = write_attributes.call_args.args[0][0]
+    assert record.attrid == general.OnOff.AttributeDefs.on_off.id
+    assert record.value.value == zigpy.types.Bool.true
 
+
+@pytest.mark.parametrize(
+    "manufacturer",
+    [
+        pytest.param({}, id="standard"),
+        pytest.param({ATTR_MANUFACTURER: 0x1234}, id="manufacturer"),
+    ],
+)
+@pytest.mark.usefixtures("zha_client")
 async def test_set_cluster_attribute_invalid_cluster_keeps_value_error(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
+    hass: HomeAssistant, hass_admin_user: MockUser, manufacturer: dict[str, int]
 ) -> None:
     """Test invalid cluster uses the existing write_zigbee_attribute error."""
     with pytest.raises(
@@ -923,55 +746,30 @@ async def test_set_cluster_attribute_invalid_cluster_keeps_value_error(
                 ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
                 ATTR_ATTRIBUTE: general.OnOff.AttributeDefs.on_off.id,
                 ATTR_VALUE: 1,
+                **manufacturer,
             },
             blocking=True,
             context=Context(user_id=hass_admin_user.id),
         )
 
 
-async def test_set_cluster_attribute_invalid_cluster_with_manufacturer_keeps_value_error(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
+@pytest.mark.parametrize(
+    "manufacturer",
+    [
+        pytest.param({}, id="standard"),
+        pytest.param({ATTR_MANUFACTURER: 0x1234}, id="manufacturer"),
+    ],
+)
+async def test_set_cluster_attribute_unknown_attribute(
+    hass: HomeAssistant,
+    hass_admin_user: MockUser,
+    on_off_cluster: Cluster,
+    manufacturer: dict[str, int],
 ) -> None:
-    """Test manufacturer-specific write preserves normalized invalid cluster error."""
-    with pytest.raises(
-        ValueError,
-        match=(
-            "Cluster 8 not found on endpoint 1 while writing attribute 0 with value 1"
-        ),
-    ):
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_SET_ZIGBEE_CLUSTER_ATTRIBUTE,
-            {
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_CLUSTER_ID: general.LevelControl.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: general.OnOff.AttributeDefs.on_off.id,
-                ATTR_VALUE: 1,
-                ATTR_MANUFACTURER: 0x1234,
-            },
-            blocking=True,
-            context=Context(user_id=hass_admin_user.id),
-        )
-
-
-async def test_set_cluster_attribute_lookup_failure_uses_raw_service_value(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
-) -> None:
-    """Test unresolved attribute definitions keep the original write value."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-    raw_value = "not-converted"
-    write_attribute_mock = AsyncMock(return_value=None)
-
+    """Test unknown attributes fail before issuing a write to the device."""
     with (
-        patch.object(cluster, "find_attribute", side_effect=KeyError),
-        patch.object(zha_device, "write_zigbee_attribute", write_attribute_mock),
+        patch.object(on_off_cluster, "write_attributes") as write_attributes,
+        pytest.raises(KeyError),
     ):
         await hass.services.async_call(
             DOMAIN,
@@ -981,74 +779,29 @@ async def test_set_cluster_attribute_lookup_failure_uses_raw_service_value(
                 ATTR_ENDPOINT_ID: 1,
                 ATTR_CLUSTER_ID: general.OnOff.cluster_id,
                 ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-                ATTR_VALUE: raw_value,
+                ATTR_ATTRIBUTE: 0xFFFF,
+                ATTR_VALUE: "not-converted",
+                **manufacturer,
             },
             blocking=True,
             context=Context(user_id=hass_admin_user.id),
         )
-
-    assert write_attribute_mock.await_count == 1
-    assert write_attribute_mock.await_args.args[3] == raw_value
-
-
-async def test_set_cluster_attribute_lookup_failure_manufacturer_keeps_raw_value(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
-) -> None:
-    """Test manufacturer writes keep raw value when attr lookup fails."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-    raw_value = "not-converted"
-    manufacturer_code = 0x1234
-    write_attributes_mock = AsyncMock(return_value=[[]])
-
-    with (
-        patch.object(cluster, "find_attribute", side_effect=KeyError),
-        patch.object(cluster, "write_attributes", write_attributes_mock),
-    ):
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_SET_ZIGBEE_CLUSTER_ATTRIBUTE,
-            {
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-                ATTR_VALUE: raw_value,
-                ATTR_MANUFACTURER: manufacturer_code,
-            },
-            blocking=True,
-            context=Context(user_id=hass_admin_user.id),
-        )
-
-    assert write_attributes_mock.await_count == 1
-    assert write_attributes_mock.await_args.args[0] == {attribute: raw_value}
-    assert write_attributes_mock.await_args.kwargs["manufacturer"] == manufacturer_code
+    write_attributes.assert_not_awaited()
 
 
 async def test_set_cluster_attribute_unknown_type_keeps_raw_value(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
+    hass: HomeAssistant, hass_admin_user: MockUser, on_off_cluster: Cluster
 ) -> None:
     """Test unknown attribute types skip conversion and write raw value."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attribute = general.OnOff.AttributeDefs.on_off.id
     raw_value = "not-converted"
-    write_attribute_mock = AsyncMock(return_value=None)
+    write_attribute_mock = AsyncMock(return_value=[[]])
 
     with (
         patch.object(
-            cluster, "find_attribute", return_value=SimpleNamespace(type=None)
+            on_off_cluster, "find_attribute", return_value=SimpleNamespace(type=None)
         ),
-        patch.object(zha_device, "write_zigbee_attribute", write_attribute_mock),
+        patch.object(on_off_cluster, "write_attributes", write_attribute_mock),
     ):
         await hass.services.async_call(
             DOMAIN,
@@ -1066,12 +819,48 @@ async def test_set_cluster_attribute_unknown_type_keeps_raw_value(
         )
 
     assert write_attribute_mock.await_count == 1
-    assert write_attribute_mock.await_args.args[3] == raw_value
+    assert write_attribute_mock.await_args.args[0][attribute] == raw_value
 
 
 @pytest.mark.parametrize(
     ("attr_type", "raw_value", "expected_value"),
     [
+        pytest.param(
+            _ServiceTestFlags,
+            3,
+            _ServiceTestFlags.Option_A | _ServiceTestFlags.Option_B,
+            id="legacy_flag_integer",
+        ),
+        pytest.param(
+            _ServiceTestFlags,
+            "03",
+            _ServiceTestFlags.Option_A | _ServiceTestFlags.Option_B,
+            id="legacy_flag_numeric_text",
+        ),
+        pytest.param(
+            _ServiceTestFlags,
+            ["Option A", 2],
+            _ServiceTestFlags.Option_A | _ServiceTestFlags.Option_B,
+            id="legacy_mixed_flag_list",
+        ),
+        pytest.param(
+            zigpy.types.Bool, "false", zigpy.types.Bool.false, id="legacy_bool_text"
+        ),
+        pytest.param(
+            zigpy.types.uint8_t,
+            "0x10",
+            zigpy.types.uint8_t(16),
+            id="legacy_integer_hex",
+        ),
+        pytest.param(
+            zigpy.types.Single, "2.75", zigpy.types.Single(2.75), id="legacy_float_text"
+        ),
+        pytest.param(
+            zigpy.types.SerializableBytes,
+            "b'abc'",
+            zigpy.types.SerializableBytes(b"abc"),
+            id="legacy_bytes_literal",
+        ),
         pytest.param(
             _ServiceTestEnum,
             "Option A",
@@ -1082,7 +871,7 @@ async def test_set_cluster_attribute_unknown_type_keeps_raw_value(
         pytest.param(
             zigpy.types.SerializableBytes,
             "0102ff",
-            "0102ff",
+            zigpy.types.SerializableBytes(b"\x01\x02\xff"),
             id="preserves_serializable_bytes_hex_input",
         ),
         pytest.param(
@@ -1105,7 +894,7 @@ async def test_set_cluster_attribute_unknown_type_keeps_raw_value(
         ),
         pytest.param(
             _ServiceTestList,
-            [1, 2, 3],
+            [{"value": 1}, {"value": 2}, {"value": 3}],
             _ServiceTestList([1, 2, 3]),
             id="preserves_list_object_input",
         ),
@@ -1113,28 +902,25 @@ async def test_set_cluster_attribute_unknown_type_keeps_raw_value(
 )
 async def test_set_cluster_attribute_typed_value(
     hass: HomeAssistant,
-    zha_client: MockHAClientWebSocket,
     hass_admin_user: MockUser,
     attr_type: type,
     raw_value: JsonValueType,
     expected_value: object,
+    on_off_cluster: Cluster,
 ) -> None:
-    """Test form values are converted before being passed to the device writer."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
+    """Test form and legacy service values reach the cluster writer as ZCL types."""
     attribute = general.OnOff.AttributeDefs.on_off.id
-    write_attribute_mock = AsyncMock(return_value=None)
+    write_attribute_mock = AsyncMock(return_value=[[]])
 
     with (
         patch.object(
-            cluster,
+            on_off_cluster,
             "find_attribute",
-            return_value=MagicMock(type=attr_type),
+            return_value=foundation.ZCLAttributeDef(
+                id=attribute, name="test_attribute", type=attr_type
+            ),
         ),
-        patch.object(zha_device, "write_zigbee_attribute", write_attribute_mock),
+        patch.object(on_off_cluster, "write_attributes", write_attribute_mock),
     ):
         await hass.services.async_call(
             DOMAIN,
@@ -1152,178 +938,120 @@ async def test_set_cluster_attribute_typed_value(
         )
 
     write_attribute_mock.assert_awaited_once_with(
-        1,
-        general.OnOff.cluster_id,
-        attribute,
-        expected_value,
-        cluster_type=CLUSTER_TYPE_IN,
+        {attribute: expected_value},
         manufacturer=ZIGPY_UNDEFINED,
     )
-    assert isinstance(write_attribute_mock.await_args.args[3], type(expected_value))
-
-
-async def test_set_cluster_attribute_serializable_bytes_default_write_path(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
-) -> None:
-    """Test default write path does not double-convert serializable bytes values."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
+    assert isinstance(
+        write_attribute_mock.await_args.args[0][attribute], type(expected_value)
     )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-    attr_def = MagicMock(type=zigpy.types.SerializableBytes)
-    cluster_write_mock = AsyncMock(return_value=[[]])
-
-    with (
-        patch.dict(cluster.attributes, {attribute: attr_def}),
-        patch.object(cluster, "find_attribute", return_value=attr_def),
-        patch.object(cluster, "write_attributes", cluster_write_mock),
-    ):
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_SET_ZIGBEE_CLUSTER_ATTRIBUTE,
-            {
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-                ATTR_VALUE: "0102ff",
-            },
-            blocking=True,
-            context=Context(user_id=hass_admin_user.id),
-        )
-
-    assert cluster_write_mock.await_count == 1
-    written_value = cluster_write_mock.await_args.args[0][attribute]
-    assert isinstance(written_value, zigpy.types.SerializableBytes)
-    assert written_value.value == b"\x01\x02\xff"
 
 
-async def test_set_cluster_attribute_struct_default_write_path(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
+@pytest.mark.parametrize(
+    ("field_type", "form_value", "expected_payload"),
+    [
+        pytest.param(
+            zigpy.types.LVList[zigpy.types.uint16_t],
+            [{"value": 1}, {"value": 2}],
+            b"\x02\x01\x00\x02\x00",
+            id="list_form",
+        ),
+        pytest.param(
+            zigpy.types.LVList[zigpy.types.uint16_t],
+            [1, 2],
+            b"\x02\x01\x00\x02\x00",
+            id="legacy_list",
+        ),
+        pytest.param(
+            _ServiceTestStruct,
+            {"field_a": 1, "field_b": 2},
+            b"\x01\x02\x00",
+            id="struct",
+        ),
+        pytest.param(
+            zigpy.types.LVList[_ServiceTestStruct],
+            [{"value": {"field_a": 1, "field_b": 2}}],
+            b"\x01\x01\x02\x00",
+            id="struct_list",
+        ),
+        pytest.param(
+            zigpy.types.SerializableBytes,
+            "0102ff",
+            b"\x01\x02\xff",
+            id="serializable_bytes",
+        ),
+        pytest.param(
+            zigpy.types.LVBytes,
+            "0102ff",
+            b"\x03\x01\x02\xff",
+            id="length_prefixed_bytes",
+        ),
+        pytest.param(
+            _CommandBytesStruct,
+            {"sequence": 1, "payload": "0203ff"},
+            b"\x01\x02\x03\xff",
+            id="nested_bytes",
+        ),
+        pytest.param(_ServiceTestFlags, [1, 2], b"\x03", id="legacy_bitmap"),
+        pytest.param(zigpy.types.Bool, "off", b"\x00", id="legacy_bool"),
+        pytest.param(
+            zigpy.types.uint64_t,
+            "18446744073709551615",
+            b"\xff\xff\xff\xff\xff\xff\xff\xff",
+            id="large_integer_text",
+        ),
+    ],
+)
+async def test_issue_cluster_command_typed_parameters(
+    hass: HomeAssistant,
+    hass_admin_user: MockUser,
+    on_off_cluster: Cluster,
+    field_type: type,
+    form_value: JsonValueType,
+    expected_payload: bytes,
 ) -> None:
-    """Test default write path handles struct object payloads end-to-end."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-    attr_def = MagicMock(type=_ServiceTestStruct)
-    cluster_write_mock = AsyncMock(return_value=[[]])
+    """Test typed command forms through ZHA dispatch and ZCL serialization."""
 
+    class FormCluster(Cluster):
+        _skip_registry = True
+        cluster_id = 0x1234
+
+        class ServerCommandDefs(foundation.BaseCommandDefs):
+            set_value = foundation.ZCLCommandDef(
+                id=0x01,
+                schema={"value": field_type},
+            )
+
+    endpoint = on_off_cluster.endpoint
+    cluster = FormCluster(endpoint)
     with (
-        patch.dict(cluster.attributes, {attribute: attr_def}),
-        patch.object(cluster, "find_attribute", return_value=attr_def),
-        patch.object(cluster, "write_attributes", cluster_write_mock),
+        patch.dict(endpoint.in_clusters, {cluster.cluster_id: cluster}),
+        patch.object(endpoint, "request", return_value=None) as request,
     ):
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_SET_ZIGBEE_CLUSTER_ATTRIBUTE,
-            {
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-                ATTR_VALUE: {"field_a": 1, "field_b": 2},
-            },
-            blocking=True,
-            context=Context(user_id=hass_admin_user.id),
-        )
-
-    assert cluster_write_mock.await_count == 1
-    written_value = cluster_write_mock.await_args.args[0][attribute]
-    assert isinstance(written_value, _ServiceTestStruct)
-    assert written_value.field_a == 1
-    assert written_value.field_b == 2
-
-
-async def test_set_cluster_attribute_list_default_write_path(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
-) -> None:
-    """Test default write path handles strict list object payloads end-to-end."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-    attr_def = MagicMock(type=_ServiceTestList)
-    cluster_write_mock = AsyncMock(return_value=[[]])
-
-    with (
-        patch.dict(cluster.attributes, {attribute: attr_def}),
-        patch.object(cluster, "find_attribute", return_value=attr_def),
-        patch.object(cluster, "write_attributes", cluster_write_mock),
-    ):
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_SET_ZIGBEE_CLUSTER_ATTRIBUTE,
-            {
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-                ATTR_VALUE: [{"value": 1}, {"value": 2}, {"value": 3}],
-            },
-            blocking=True,
-            context=Context(user_id=hass_admin_user.id),
-        )
-
-    assert cluster_write_mock.await_count == 1
-    written_value = cluster_write_mock.await_args.args[0][attribute]
-    assert isinstance(written_value, _ServiceTestList)
-    assert written_value == [1, 2, 3]
-
-
-async def test_issue_cluster_command_delegates_to_device_issue_cluster_command(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
-) -> None:
-    """Test command service delegates through zha_device.issue_cluster_command."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    device_command_mock = AsyncMock(return_value=None)
-    manufacturer_code = 0x1234
-
-    with patch.object(zha_device, "issue_cluster_command", device_command_mock):
         await hass.services.async_call(
             DOMAIN,
             SERVICE_ISSUE_ZIGBEE_CLUSTER_COMMAND,
             {
                 ATTR_IEEE: IEEE_SWITCH_DEVICE,
                 ATTR_ENDPOINT_ID: 1,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
+                ATTR_CLUSTER_ID: cluster.cluster_id,
                 ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_COMMAND: 0x99,
+                ATTR_COMMAND: FormCluster.ServerCommandDefs.set_value.id,
                 ATTR_COMMAND_TYPE: CLUSTER_COMMAND_SERVER,
-                ATTR_PARAMS: {"payload": {"field_a": 1, "field_b": 2}},
-                ATTR_MANUFACTURER: manufacturer_code,
+                ATTR_PARAMS: {"value": form_value},
             },
             blocking=True,
             context=Context(user_id=hass_admin_user.id),
         )
 
-    assert device_command_mock.await_count == 1
-    assert device_command_mock.await_args.args == (
-        1,
-        general.OnOff.cluster_id,
-        0x99,
-        CLUSTER_COMMAND_SERVER,
-        None,
-        {"payload": {"field_a": 1, "field_b": 2}},
-    )
-    assert device_command_mock.await_args.kwargs == {
-        "cluster_type": CLUSTER_TYPE_IN,
-        "manufacturer": manufacturer_code,
-    }
+    request.assert_awaited_once()
+    header, payload = foundation.ZCLHeader.deserialize(request.call_args.kwargs["data"])
+    assert header.command_id == FormCluster.ServerCommandDefs.set_value.id
+    assert payload == expected_payload
 
 
+@pytest.mark.usefixtures("zha_client")
 async def test_issue_cluster_command_accepts_manufacturer_minus_one(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
+    hass: HomeAssistant, hass_admin_user: MockUser
 ) -> None:
     """Test command service validation accepts the legacy manufacturer=-1 sentinel."""
     zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
@@ -1351,42 +1079,59 @@ async def test_issue_cluster_command_accepts_manufacturer_minus_one(
     assert issue_command_mock.await_args.kwargs["manufacturer"] == -1
 
 
-async def test_issue_cluster_command_rejects_manufacturer_above_uint16(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, hass_admin_user: MockUser
+@pytest.mark.parametrize(
+    ("attr_type", "value", "expected_value"),
+    [
+        pytest.param(zigpy.types.Bool, 1, True, id="bool"),
+        pytest.param(
+            _ServiceTestFlags,
+            _ServiceTestFlags.Option_A | _ServiceTestFlags.Option_B,
+            ["Option A", "Option B"],
+            id="flags",
+        ),
+        pytest.param(
+            _ServiceTestEnum, _ServiceTestEnum.Option_B, "Option B", id="enum"
+        ),
+        pytest.param(zigpy.types.Single, zigpy.types.Single(1.25), 1.25, id="float"),
+        pytest.param(bytes, b"\x01\x02", "0102", id="bytes"),
+        pytest.param(
+            zigpy.types.SerializableBytes,
+            zigpy.types.SerializableBytes(b"\x01\x02"),
+            "0102",
+            id="serializable_bytes",
+        ),
+        pytest.param(
+            _ServiceTestStruct,
+            _ServiceTestStruct(field_a=1, field_b=2),
+            {"field_a": 1, "field_b": 2},
+            id="struct",
+        ),
+        pytest.param(
+            _ServiceTestList,
+            _ServiceTestList([1, 2, 3]),
+            [{"value": 1}, {"value": 2}, {"value": 3}],
+            id="list",
+        ),
+    ],
+)
+async def test_read_cluster_attribute_typed_value(
+    zha_client: MockHAClientWebSocket,
+    attr_type: type,
+    value: object,
+    expected_value: JsonValueType,
+    on_off_cluster: Cluster,
 ) -> None:
-    """Test command service validation rejects manufacturer values above uint16."""
-    with pytest.raises(vol.Invalid):
-        await hass.services.async_call(
-            DOMAIN,
-            SERVICE_ISSUE_ZIGBEE_CLUSTER_COMMAND,
-            {
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_COMMAND: 1,
-                ATTR_COMMAND_TYPE: CLUSTER_COMMAND_SERVER,
-                ATTR_ARGS: [],
-                ATTR_MANUFACTURER: 0x10000,
-            },
-            blocking=True,
-            context=Context(user_id=hass_admin_user.id),
-        )
-
-
-async def test_read_cluster_attribute_returns_typed_bool(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
-) -> None:
-    """Test websocket read returns bool values for bool-typed attributes."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
+    """Test attribute reads return the value shape required by the form."""
     attribute = general.OnOff.AttributeDefs.on_off.id
+    attr_def = foundation.ZCLAttributeDef(
+        id=attribute, name="test_attribute", type=attr_type
+    )
 
-    with patch.object(
-        cluster, "read_attributes", AsyncMock(return_value=({attribute: 1}, {}))
+    with (
+        patch.object(on_off_cluster, "find_attribute", return_value=attr_def),
+        patch.object(
+            on_off_cluster, "read_attributes", return_value=({attribute: value}, {})
+        ),
     ):
         await zha_client.send_json(
             {
@@ -1399,121 +1144,31 @@ async def test_read_cluster_attribute_returns_typed_bool(
                 ATTR_ATTRIBUTE: attribute,
             }
         )
-
         msg = await zha_client.receive_json()
 
-    assert msg["result"] is True
-
-
-async def test_read_cluster_attribute_returns_typed_flag_names(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
-) -> None:
-    """Test websocket read returns list[str] values for flag-typed attributes."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-
-    with (
-        patch.object(
-            cluster,
-            "find_attribute",
-            return_value=MagicMock(type=_ServiceTestFlags),
-        ),
-        patch.object(
-            cluster,
-            "read_attributes",
-            AsyncMock(
-                return_value=(
-                    {
-                        attribute: _ServiceTestFlags.Option_A
-                        | _ServiceTestFlags.Option_B
-                    },
-                    {},
-                )
-            ),
-        ),
-    ):
-        await zha_client.send_json(
-            {
-                ID: 16,
-                TYPE: "zha/devices/clusters/attributes/value",
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-            }
-        )
-
-        msg = await zha_client.receive_json()
-
-    assert sorted(msg["result"]) == ["Option A", "Option B"]
-
-
-async def test_read_cluster_attribute_returns_typed_enum_label(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
-) -> None:
-    """Test websocket read returns enum member labels."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-
-    with (
-        patch.object(
-            cluster,
-            "find_attribute",
-            return_value=MagicMock(type=_ServiceTestEnum),
-        ),
-        patch.object(
-            cluster,
-            "read_attributes",
-            AsyncMock(return_value=({attribute: _ServiceTestEnum.Option_B}, {})),
-        ),
-    ):
-        await zha_client.send_json(
-            {
-                ID: 17,
-                TYPE: "zha/devices/clusters/attributes/value",
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-            }
-        )
-
-        msg = await zha_client.receive_json()
-
-    assert msg["result"] == "Option B"
+    assert msg["success"] is True
+    assert msg["result"] == expected_value
+    assert type(msg["result"]) is type(expected_value)
 
 
 async def test_read_cluster_attribute_uses_manufacturer_specific_attribute_type(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
+    zha_client: MockHAClientWebSocket, on_off_cluster: Cluster
 ) -> None:
     """Test websocket read converts values with manufacturer-specific attr definitions."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attribute = general.OnOff.AttributeDefs.on_off.id
     manufacturer_code = 0x1234
 
     with (
-        patch.dict(cluster.attributes, {attribute: MagicMock(type=zigpy.types.Bool)}),
+        patch.dict(
+            on_off_cluster.attributes, {attribute: MagicMock(type=zigpy.types.Bool)}
+        ),
         patch.object(
-            cluster,
+            on_off_cluster,
             "find_attribute",
             return_value=MagicMock(type=_ServiceTestEnum),
         ) as find_attribute_mock,
         patch.object(
-            cluster,
+            on_off_cluster,
             "read_attributes",
             AsyncMock(return_value=({attribute: _ServiceTestEnum.Option_B}, {})),
         ),
@@ -1540,26 +1195,23 @@ async def test_read_cluster_attribute_uses_manufacturer_specific_attribute_type(
 
 
 async def test_read_cluster_attribute_uses_manufacturer_specific_real_attr_type(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
+    zha_client: MockHAClientWebSocket, on_off_cluster: Cluster
 ) -> None:
     """Test read conversion uses real manufacturer-specific enum attr definitions."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attribute = general.OnOff.AttributeDefs.on_off.id
     manufacturer_code = 0x1234
     real_attr_def = general.Ota.AttributeDefs.image_upgrade_status
     real_enum_type = real_attr_def.type
 
     with (
-        patch.dict(cluster.attributes, {attribute: MagicMock(type=zigpy.types.Bool)}),
+        patch.dict(
+            on_off_cluster.attributes, {attribute: MagicMock(type=zigpy.types.Bool)}
+        ),
         patch.object(
-            cluster, "find_attribute", return_value=real_attr_def
+            on_off_cluster, "find_attribute", return_value=real_attr_def
         ) as find_attribute_mock,
         patch.object(
-            cluster,
+            on_off_cluster,
             "read_attributes",
             AsyncMock(return_value=({attribute: real_enum_type.Download_complete}, {})),
         ),
@@ -1586,20 +1238,15 @@ async def test_read_cluster_attribute_uses_manufacturer_specific_real_attr_type(
 
 
 async def test_read_cluster_attribute_accepts_attribute_name_with_manufacturer(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
+    zha_client: MockHAClientWebSocket, on_off_cluster: Cluster
 ) -> None:
     """Test websocket read accepts attribute name plus manufacturer code."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attribute_name = general.OnOff.AttributeDefs.on_off.name
     manufacturer_code = 0x1234
 
     with (
         patch.object(
-            cluster,
+            on_off_cluster,
             "find_attribute",
             return_value=MagicMock(
                 id=general.OnOff.AttributeDefs.on_off.id,
@@ -1607,7 +1254,7 @@ async def test_read_cluster_attribute_accepts_attribute_name_with_manufacturer(
             ),
         ) as find_attribute_mock,
         patch.object(
-            cluster,
+            on_off_cluster,
             "read_attributes",
             AsyncMock(
                 return_value=(
@@ -1641,49 +1288,6 @@ async def test_read_cluster_attribute_accepts_attribute_name_with_manufacturer(
     assert msg["result"] == "Option B"
 
 
-async def test_read_cluster_attribute_name_request_handles_id_keyed_success_map(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
-) -> None:
-    """Test websocket read resolves values when zigpy returns values keyed by attr id."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
-    attribute_name = general.OnOff.AttributeDefs.on_off.name
-    attribute_id = general.OnOff.AttributeDefs.on_off.id
-
-    with (
-        patch.object(
-            cluster,
-            "find_attribute",
-            return_value=MagicMock(
-                id=attribute_id, name=attribute_name, type=_ServiceTestEnum
-            ),
-        ),
-        patch.object(
-            cluster,
-            "read_attributes",
-            AsyncMock(return_value=({attribute_id: _ServiceTestEnum.Option_B}, {})),
-        ),
-    ):
-        await zha_client.send_json(
-            {
-                ID: 31,
-                TYPE: "zha/devices/clusters/attributes/value",
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute_name,
-            }
-        )
-
-        msg = await zha_client.receive_json()
-
-    assert msg["result"] == "Option B"
-
-
 async def test_read_cluster_attribute_rejects_manufacturer_minus_one(
     hass: HomeAssistant, zha_client: MockHAClientWebSocket
 ) -> None:
@@ -1707,154 +1311,32 @@ async def test_read_cluster_attribute_rejects_manufacturer_minus_one(
     assert msg["error"]["code"] == ERR_INVALID_FORMAT
 
 
-async def test_read_cluster_attribute_returns_typed_float(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
-) -> None:
-    """Test websocket read returns floats for float-typed attributes."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-
-    with (
-        patch.object(
-            cluster,
-            "find_attribute",
-            return_value=MagicMock(type=zigpy.types.Single),
-        ),
-        patch.object(
-            cluster,
-            "read_attributes",
-            AsyncMock(return_value=({attribute: zigpy.types.Single(1.25)}, {})),
-        ),
-    ):
-        await zha_client.send_json(
-            {
-                ID: 18,
-                TYPE: "zha/devices/clusters/attributes/value",
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-            }
-        )
-
-        msg = await zha_client.receive_json()
-
-    assert msg["result"] == pytest.approx(1.25)
-
-
-async def test_read_cluster_attribute_returns_typed_bytes_hex(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
-) -> None:
-    """Test websocket read returns hex strings for bytes-typed attributes."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-
-    with (
-        patch.object(
-            cluster,
-            "find_attribute",
-            return_value=MagicMock(type=bytes),
-        ),
-        patch.object(
-            cluster,
-            "read_attributes",
-            AsyncMock(return_value=({attribute: b"\x01\x02"}, {})),
-        ),
-    ):
-        await zha_client.send_json(
-            {
-                ID: 19,
-                TYPE: "zha/devices/clusters/attributes/value",
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-            }
-        )
-
-        msg = await zha_client.receive_json()
-
-    assert msg["result"] == "0102"
-
-
-async def test_read_cluster_attribute_returns_typed_serializable_bytes_hex(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
-) -> None:
-    """Test websocket read returns hex for serializable-bytes attributes."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-
-    with (
-        patch.object(
-            cluster,
-            "find_attribute",
-            return_value=MagicMock(type=zigpy.types.SerializableBytes),
-        ),
-        patch.object(
-            cluster,
-            "read_attributes",
-            AsyncMock(
-                return_value=(
-                    {attribute: zigpy.types.SerializableBytes(b"\x01\x02")},
-                    {},
-                )
-            ),
-        ),
-    ):
-        await zha_client.send_json(
-            {
-                ID: 21,
-                TYPE: "zha/devices/clusters/attributes/value",
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-            }
-        )
-
-        msg = await zha_client.receive_json()
-
-    assert msg["result"] == "0102"
-
-
 @pytest.mark.parametrize(
     "conversion_error",
-    [ValueError("boom"), TypeError("boom"), AttributeError("boom")],
+    [
+        pytest.param(ValueError("boom"), id="value_error"),
+        pytest.param(TypeError("boom"), id="type_error"),
+    ],
 )
 async def test_read_cluster_attribute_logs_conversion_exception(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket, conversion_error: Exception
+    zha_client: MockHAClientWebSocket,
+    conversion_error: Exception,
+    caplog: pytest.LogCaptureFixture,
+    on_off_cluster: Cluster,
 ) -> None:
     """Test conversion failures are logged and still return string fallback."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attribute = general.OnOff.AttributeDefs.on_off.id
+
+    caplog.set_level(logging.DEBUG, logger="homeassistant.components.zha.websocket_api")
 
     with (
         patch.object(
-            cluster,
+            on_off_cluster,
             "find_attribute",
             return_value=MagicMock(type=_ServiceTestEnum),
         ),
         patch.object(
-            cluster,
+            on_off_cluster,
             "read_attributes",
             AsyncMock(return_value=({attribute: _ServiceTestEnum.Option_A}, {})),
         ),
@@ -1862,7 +1344,6 @@ async def test_read_cluster_attribute_logs_conversion_exception(
             "homeassistant.components.zha.websocket_api.attribute_value_to_form_value",
             side_effect=conversion_error,
         ),
-        patch("homeassistant.components.zha.websocket_api._LOGGER.debug") as debug_log,
     ):
         await zha_client.send_json(
             {
@@ -1879,66 +1360,43 @@ async def test_read_cluster_attribute_logs_conversion_exception(
         msg = await zha_client.receive_json()
 
     assert msg["result"] == str(_ServiceTestEnum.Option_A)
-    assert any(
-        call_args.args
-        and call_args.args[0].startswith("Failed to convert read attribute value")
-        for call_args in debug_log.call_args_list
-    )
+    assert "Failed to convert read attribute value" in caplog.text
 
 
-async def test_read_cluster_attribute_find_attribute_lookup_failure_fallback(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
+async def test_read_cluster_attribute_unknown_attribute(
+    zha_client: MockHAClientWebSocket,
 ) -> None:
-    """Test websocket read falls back to string when attr lookup fails."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
+    """Test unknown attribute definitions return an error."""
+    await zha_client.send_json(
+        {
+            ID: 29,
+            TYPE: "zha/devices/clusters/attributes/value",
+            ATTR_ENDPOINT_ID: 1,
+            ATTR_IEEE: IEEE_SWITCH_DEVICE,
+            ATTR_CLUSTER_ID: general.OnOff.cluster_id,
+            ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
+            ATTR_ATTRIBUTE: 0xFFFF,
+        }
     )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-
-    with (
-        patch.object(cluster, "find_attribute", side_effect=KeyError),
-        patch.object(
-            cluster,
-            "read_attributes",
-            AsyncMock(return_value=({attribute: _ServiceTestEnum.Option_A}, {})),
-        ),
-    ):
-        await zha_client.send_json(
-            {
-                ID: 29,
-                TYPE: "zha/devices/clusters/attributes/value",
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-            }
-        )
-
-        msg = await zha_client.receive_json()
-
-    assert msg["result"] == str(_ServiceTestEnum.Option_A)
+    msg = await zha_client.receive_json()
+    assert msg["success"] is False
+    assert msg["error"]["code"] == ERR_UNKNOWN_ERROR
 
 
 async def test_read_cluster_attribute_unknown_type_fallback(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
+    zha_client: MockHAClientWebSocket, on_off_cluster: Cluster
 ) -> None:
     """Test websocket read falls back to string when attr type is unknown."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attribute = general.OnOff.AttributeDefs.on_off.id
 
     with (
         patch.object(
-            cluster, "find_attribute", return_value=SimpleNamespace(type=None)
+            on_off_cluster, "find_attribute", return_value=SimpleNamespace(type=None)
         ),
         patch.object(
-            cluster, "read_attributes", AsyncMock(return_value=({attribute: 1}, {}))
+            on_off_cluster,
+            "read_attributes",
+            AsyncMock(return_value=({attribute: 1}, {})),
         ),
     ):
         await zha_client.send_json(
@@ -1958,101 +1416,14 @@ async def test_read_cluster_attribute_unknown_type_fallback(
     assert msg["result"] == "1"
 
 
-async def test_read_cluster_attribute_returns_typed_struct_object(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
-) -> None:
-    """Test websocket read returns dict values for struct-typed attributes."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-
-    with (
-        patch.object(
-            cluster,
-            "find_attribute",
-            return_value=MagicMock(type=_ServiceTestStruct),
-        ),
-        patch.object(
-            cluster,
-            "read_attributes",
-            AsyncMock(
-                return_value=({attribute: _ServiceTestStruct(field_a=1, field_b=2)}, {})
-            ),
-        ),
-    ):
-        await zha_client.send_json(
-            {
-                ID: 22,
-                TYPE: "zha/devices/clusters/attributes/value",
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-            }
-        )
-
-        msg = await zha_client.receive_json()
-
-    assert msg["result"] == {"field_a": 1, "field_b": 2}
-
-
-async def test_read_cluster_attribute_returns_typed_list_object(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
-) -> None:
-    """Test websocket read returns list values for list-like typed attributes."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
-    attribute = general.OnOff.AttributeDefs.on_off.id
-
-    with (
-        patch.object(
-            cluster,
-            "find_attribute",
-            return_value=MagicMock(type=_ServiceTestList),
-        ),
-        patch.object(
-            cluster,
-            "read_attributes",
-            AsyncMock(return_value=({attribute: _ServiceTestList([1, 2, 3])}, {})),
-        ),
-    ):
-        await zha_client.send_json(
-            {
-                ID: 23,
-                TYPE: "zha/devices/clusters/attributes/value",
-                ATTR_ENDPOINT_ID: 1,
-                ATTR_IEEE: IEEE_SWITCH_DEVICE,
-                ATTR_CLUSTER_ID: general.OnOff.cluster_id,
-                ATTR_CLUSTER_TYPE: CLUSTER_TYPE_IN,
-                ATTR_ATTRIBUTE: attribute,
-            }
-        )
-
-        msg = await zha_client.receive_json()
-
-    assert msg["result"] == [{"value": 1}, {"value": 2}, {"value": 3}]
-
-
 async def test_read_cluster_attribute_returns_null_when_no_value(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
+    zha_client: MockHAClientWebSocket, on_off_cluster: Cluster
 ) -> None:
     """Test websocket read contract returns null when no value is available."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
     attribute = general.OnOff.AttributeDefs.on_off.id
 
     with patch.object(
-        cluster,
+        on_off_cluster,
         "read_attributes",
         AsyncMock(return_value=({}, {attribute: "unsupported"})),
     ):
@@ -2073,7 +1444,9 @@ async def test_read_cluster_attribute_returns_null_when_no_value(
     assert msg["result"] is None
 
 
-async def test_device_cluster_commands(zha_client: MockHAClientWebSocket) -> None:
+async def test_device_cluster_commands(
+    zha_client: MockHAClientWebSocket, snapshot: SnapshotAssertion
+) -> None:
     """Test getting device cluster commands."""
     await zha_client.send_json(
         {
@@ -2088,41 +1461,7 @@ async def test_device_cluster_commands(zha_client: MockHAClientWebSocket) -> Non
 
     msg = await zha_client.receive_json()
 
-    commands = msg["result"]
-    assert commands
-
-    for command in commands:
-        assert "schema" in command
-        assert "zcl_command" in command
-        assert ID not in command
-        assert ATTR_NAME not in command
-        assert TYPE not in command
-        zcl_command = command["zcl_command"]
-        assert zcl_command[ID] is not None
-        assert zcl_command[ATTR_NAME] is not None
-        assert zcl_command["command_type"] in {
-            "client",
-            CLUSTER_COMMAND_SERVER,
-        }
-        assert "is_manufacturer_specific" in zcl_command
-        assert zcl_command["is_manufacturer_specific"] in {True, False, None}
-        assert "manufacturer_code" in zcl_command
-        assert zcl_command["manufacturer_code"] is None or isinstance(
-            zcl_command["manufacturer_code"], int
-        )
-
-    expected_commands = {
-        (int(command_def.id), "client")
-        for command_def in general.OnOff.ClientCommandDefs
-    } | {
-        (int(command_def.id), CLUSTER_COMMAND_SERVER)
-        for command_def in general.OnOff.ServerCommandDefs
-    }
-    result_commands = {
-        (entry["zcl_command"][ID], entry["zcl_command"]["command_type"])
-        for entry in commands
-    }
-    assert expected_commands.issubset(result_commands)
+    assert msg["result"] == snapshot
 
 
 async def test_device_cluster_commands_invalid_cluster_returns_error(
@@ -2148,14 +1487,11 @@ async def test_device_cluster_commands_invalid_cluster_returns_error(
 
 
 async def test_device_cluster_commands_manufacturer_metadata(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
+    zha_client: MockHAClientWebSocket,
+    snapshot: SnapshotAssertion,
+    on_off_cluster: Cluster,
 ) -> None:
     """Test command serialization keeps manufacturer metadata from command defs."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
 
     manufacturer_code = 0x1234
     manufacturer_command = foundation.ZCLCommandDef(
@@ -2167,8 +1503,8 @@ async def test_device_cluster_commands_manufacturer_metadata(
     ).with_compiled_schema()
 
     with (
-        patch.object(cluster, "ClientCommandDefs", []),
-        patch.object(cluster, "ServerCommandDefs", [manufacturer_command]),
+        patch.object(on_off_cluster, "ClientCommandDefs", []),
+        patch.object(on_off_cluster, "ServerCommandDefs", [manufacturer_command]),
     ):
         await zha_client.send_json(
             {
@@ -2183,24 +1519,13 @@ async def test_device_cluster_commands_manufacturer_metadata(
 
         msg = await zha_client.receive_json()
 
-    commands = msg["result"]
-    assert len(commands) == 1
-    command = commands[0]["zcl_command"]
-    assert command[ATTR_NAME] == "manufacturer_command"
-    assert command["command_type"] == CLUSTER_COMMAND_SERVER
-    assert command["is_manufacturer_specific"] is True
-    assert command["manufacturer_code"] == manufacturer_code
+    assert msg["result"] == snapshot
 
 
 async def test_device_cluster_commands_no_schema_returns_empty_schema(
-    hass: HomeAssistant, zha_client: MockHAClientWebSocket
+    zha_client: MockHAClientWebSocket, on_off_cluster: Cluster
 ) -> None:
     """Test command entries with no schema serialize an empty schema list."""
-    zha_device = get_zha_gateway(hass).get_device(EUI64.convert(IEEE_SWITCH_DEVICE))
-    assert zha_device is not None
-    cluster = zha_device.async_get_cluster(
-        1, general.OnOff.cluster_id, cluster_type=CLUSTER_TYPE_IN
-    )
 
     command_without_schema = SimpleNamespace(
         id=0x89,
@@ -2211,8 +1536,8 @@ async def test_device_cluster_commands_no_schema_returns_empty_schema(
     )
 
     with (
-        patch.object(cluster, "ClientCommandDefs", []),
-        patch.object(cluster, "ServerCommandDefs", [command_without_schema]),
+        patch.object(on_off_cluster, "ClientCommandDefs", []),
+        patch.object(on_off_cluster, "ServerCommandDefs", [command_without_schema]),
     ):
         await zha_client.send_json(
             {

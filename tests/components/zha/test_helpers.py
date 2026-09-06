@@ -7,10 +7,11 @@ from unittest.mock import patch
 
 from probatio import to_field_list
 import pytest
+from syrupy.assertion import SnapshotAssertion
 from zigpy.application import ControllerApplication
 import zigpy.types
 from zigpy.types.basic import uint16_t
-from zigpy.zcl.clusters import general, lighting, security
+from zigpy.zcl.clusters import general, homeautomation, lighting, security
 
 from homeassistant.components.zha import const as zha_const
 from homeassistant.components.zha.helpers import (
@@ -32,7 +33,7 @@ from tests.common import MockConfigEntry
 _LOGGER = logging.getLogger(__name__)
 
 
-class _TestFlags(enum.Flag):
+class _TestFlags(zigpy.types.bitmap8):
     """Test flag type used for value conversion checks."""
 
     Option_A = 1
@@ -51,6 +52,13 @@ class _TestStruct(zigpy.types.Struct):
 
     field_a: zigpy.types.uint8_t
     field_b: zigpy.types.uint16_t
+
+
+class _LargeIntegerStruct(zigpy.types.Struct):
+    """Struct containing integer fields that need exact text input."""
+
+    signed: zigpy.types.int64s
+    unsigned: zigpy.types.LVList[zigpy.types.uint64_t]
 
 
 class _TestList(list):
@@ -96,277 +104,87 @@ class _SelectorCoverageStruct(zigpy.types.Struct):
     fallback_field: _UnsupportedSelectorType
 
 
-async def test_zcl_schema_conversions(hass: HomeAssistant) -> None:
+def test_zcl_schema_conversions(snapshot: SnapshotAssertion) -> None:
     """Test ZHA ZCL schema conversion helpers."""
     command_schema = lighting.Color.ServerCommandDefs.color_loop_set.schema
-    expected_schema = [
-        {
-            "type": "multi_select",
-            "options": {
-                "Action": "Action",
-                "Direction": "Direction",
-                "Time": "Time",
-                "Start Hue": "Start Hue",
-            },
-            "name": "update_flags",
-            "required": True,
-        },
-        {
-            "type": "select",
-            "options": [
-                ("Deactivate", "Deactivate"),
-                ("Activate from color loop hue", "Activate from color loop hue"),
-                ("Activate from current hue", "Activate from current hue"),
-            ],
-            "name": "action",
-            "required": True,
-        },
-        {
-            "type": "select",
-            "options": [("Decrement", "Decrement"), ("Increment", "Increment")],
-            "name": "direction",
-            "required": True,
-        },
-        {
-            "selector": {
-                "number": {
-                    "min": 0.0,
-                    "max": 65535.0,
-                    "step": 1.0,
-                    "mode": "box",
-                }
-            },
-            "name": "time",
-            "required": True,
-        },
-        {
-            "selector": {
-                "number": {
-                    "min": 0.0,
-                    "max": 65535.0,
-                    "step": 1.0,
-                    "mode": "box",
-                }
-            },
-            "name": "start_hue",
-            "required": True,
-        },
-        {
-            "type": "multi_select",
-            "options": {"Execute if off present": "Execute if off present"},
-            "name": "options_mask",
-            "optional": True,
-            "required": False,
-        },
-        {
-            "type": "multi_select",
-            "options": {"Execute if off": "Execute if off"},
-            "name": "options_override",
-            "optional": True,
-            "required": False,
-        },
-    ]
     vol_schema = to_field_list(
         cluster_command_schema_to_vol_schema(command_schema),
         custom_serializer=cv.custom_serializer,
     )
-    assert vol_schema == expected_schema
-
-    raw_data = {
-        "update_flags": ["Action", "Start Hue"],
-        "action": "Activate from current hue",
-        "direction": "Increment",
-        "time": 20,
-        "start_hue": 196,
-    }
-
-    converted_data = convert_to_zcl_values(raw_data, command_schema)
-
-    assert isinstance(
-        converted_data["update_flags"], lighting.Color.ColorLoopUpdateFlags
-    )
-    assert lighting.Color.ColorLoopUpdateFlags.Action in converted_data["update_flags"]
-    assert (
-        lighting.Color.ColorLoopUpdateFlags.Start_Hue in converted_data["update_flags"]
-    )
-
-    assert isinstance(converted_data["action"], lighting.Color.ColorLoopAction)
-    assert (
-        converted_data["action"]
-        == lighting.Color.ColorLoopAction.Activate_from_current_hue
-    )
-
-    assert isinstance(converted_data["direction"], lighting.Color.ColorLoopDirection)
-    assert converted_data["direction"] == lighting.Color.ColorLoopDirection.Increment
-
-    assert isinstance(converted_data["time"], uint16_t)
-    assert converted_data["time"] == 20
-
-    assert isinstance(converted_data["start_hue"], uint16_t)
-    assert converted_data["start_hue"] == 196
-
-    # This time, the update flags bitmap is empty.
-    raw_data = {
-        "update_flags": [],
-        "action": "Activate from current hue",
-        "direction": "Increment",
-        "time": 20,
-        "start_hue": 196,
-    }
-
-    converted_data = convert_to_zcl_values(raw_data, command_schema)
-
-    # No flags are passed through
-    assert converted_data["update_flags"] == 0
+    assert vol_schema == snapshot
 
 
 @pytest.mark.parametrize(
-    ("attr_type", "expected_schema"),
+    ("flags", "action", "direction", "expected_flags"),
     [
-        (
-            zigpy.types.Bool,
-            [{"type": "boolean", "name": "value", "required": True}],
+        pytest.param(
+            ["Action", "Start Hue"],
+            "Activate from current hue",
+            "Increment",
+            9,
+            id="labels",
         ),
-        (
-            _TestFlags,
-            [
-                {
-                    "type": "multi_select",
-                    "options": {"Option A": "Option A", "Option B": "Option B"},
-                    "name": "value",
-                    "required": True,
-                }
-            ],
-        ),
-        (
-            _TestEnum,
-            [
-                {
-                    "type": "select",
-                    "options": [("Option A", "Option A"), ("Option B", "Option B")],
-                    "name": "value",
-                    "required": True,
-                }
-            ],
-        ),
-        (
-            zigpy.types.uint8_t,
-            [
-                {
-                    "selector": {
-                        "number": {
-                            "min": 0.0,
-                            "max": 255.0,
-                            "step": 1.0,
-                            "mode": "box",
-                        }
-                    },
-                    "name": "value",
-                    "required": True,
-                }
-            ],
-        ),
-        (
-            zigpy.types.Single,
-            [
-                {
-                    "selector": {"number": {"step": "any", "mode": "box"}},
-                    "name": "value",
-                    "required": True,
-                }
-            ],
-        ),
-        (
-            bytes,
-            [{"type": "string", "name": "value", "required": True}],
-        ),
-        (
-            zigpy.types.EUI64,
-            [{"type": "string", "name": "value", "required": True}],
-        ),
-        (
-            zigpy.types.KeyData,
-            [{"type": "string", "name": "value", "required": True}],
-        ),
-        (
-            _TestStruct,
-            [
-                {
-                    "selector": {
-                        "object": {
-                            "multiple": False,
-                            "label_field": "field_a",
-                            "fields": {
-                                "field_a": {
-                                    "required": True,
-                                    "selector": {
-                                        "number": {
-                                            "min": 0.0,
-                                            "max": 255.0,
-                                            "step": 1,
-                                            "mode": "box",
-                                        }
-                                    },
-                                },
-                                "field_b": {
-                                    "required": True,
-                                    "selector": {
-                                        "number": {
-                                            "min": 0.0,
-                                            "max": 65535.0,
-                                            "step": 1,
-                                            "mode": "box",
-                                        }
-                                    },
-                                },
-                            },
-                        }
-                    },
-                    "name": "value",
-                    "required": True,
-                }
-            ],
-        ),
-        (
-            _TestList,
-            [
-                {
-                    "selector": {
-                        "object": {
-                            "multiple": True,
-                            "label_field": "value",
-                            "fields": {
-                                "value": {
-                                    "required": True,
-                                    "selector": {
-                                        "number": {
-                                            "min": 0.0,
-                                            "max": 255.0,
-                                            "step": 1,
-                                            "mode": "box",
-                                        }
-                                    },
-                                }
-                            },
-                        }
-                    },
-                    "name": "value",
-                    "required": True,
-                }
-            ],
-        ),
+        pytest.param([1, 8], 2, 1, 9, id="numeric"),
+        pytest.param([], "Activate from current hue", "Increment", 0, id="empty_flags"),
+    ],
+)
+def test_zcl_value_conversions(
+    flags: list[str | int], action: str | int, direction: str | int, expected_flags: int
+) -> None:
+    """Test command conversion preserves form labels and existing numeric inputs."""
+    converted_data = convert_to_zcl_values(
+        {
+            "update_flags": flags,
+            "action": action,
+            "direction": direction,
+            "time": 20,
+            "start_hue": 196,
+        },
+        lighting.Color.ServerCommandDefs.color_loop_set.schema,
+    )
+    assert isinstance(
+        converted_data["update_flags"], lighting.Color.ColorLoopUpdateFlags
+    )
+    assert converted_data["update_flags"] == expected_flags
+    assert (
+        converted_data["action"]
+        is lighting.Color.ColorLoopAction.Activate_from_current_hue
+    )
+    assert converted_data["direction"] is lighting.Color.ColorLoopDirection.Increment
+    assert isinstance(converted_data["time"], uint16_t)
+    assert converted_data["time"] == 20
+    assert isinstance(converted_data["start_hue"], uint16_t)
+    assert converted_data["start_hue"] == 196
+
+
+@pytest.mark.parametrize(
+    "attr_type",
+    [
+        pytest.param(zigpy.types.Bool, id="bool"),
+        pytest.param(_TestFlags, id="flags"),
+        pytest.param(_TestEnum, id="enum"),
+        pytest.param(zigpy.types.uint8_t, id="integer"),
+        pytest.param(zigpy.types.uint64_t, id="large_integer"),
+        pytest.param(_LargeIntegerStruct, id="nested_large_integer"),
+        pytest.param(zigpy.types.Single, id="float"),
+        pytest.param(bytes, id="bytes"),
+        pytest.param(zigpy.types.EUI64, id="eui64"),
+        pytest.param(zigpy.types.KeyData, id="key_data"),
+        pytest.param(_TestStruct, id="struct"),
+        pytest.param(_TestList, id="list"),
+        pytest.param(_SelectorCoverageStruct, id="nested_struct"),
     ],
 )
 def test_attribute_type_to_vol_schema_shapes(
-    attr_type: type[Any], expected_schema: list[dict[str, Any]]
+    attr_type: type, snapshot: SnapshotAssertion
 ) -> None:
-    """Test typed attribute schemas are serialized with exact expected form shapes."""
+    """Test serialized selectors for attribute types and nested fields."""
     assert (
         to_field_list(
             attribute_type_to_vol_schema(attr_type),
             custom_serializer=cv.custom_serializer,
         )
-        == expected_schema
+        == snapshot
     )
 
 
@@ -378,26 +196,64 @@ def test_attribute_type_to_vol_schema_non_type_falls_back_to_text() -> None:
     ) == [{"type": "string", "name": "value", "required": True}]
 
 
-def test_attribute_type_to_vol_schema_selector_branch_coverage() -> None:
-    """Test nested selector generation covers selector mapping branches."""
-    schema = cast(
-        list[dict[str, Any]],
-        to_field_list(
-            attribute_type_to_vol_schema(_SelectorCoverageStruct),
-            custom_serializer=cv.custom_serializer,
+@pytest.mark.parametrize(
+    ("attr_type", "raw_value", "expected_value"),
+    [
+        pytest.param(zigpy.types.Bool, "true", zigpy.types.Bool.true, id="bool_text"),
+        pytest.param(
+            zigpy.types.Bool,
+            "Bool.false",
+            zigpy.types.Bool.false,
+            id="qualified_bool_text",
         ),
-    )
-    assert set(schema[0]["selector"]["object"]["fields"]) == {
-        "bool_field",
-        "flag_field",
-        "enum_field",
-        "struct_field",
-        "int_field",
-        "float_field",
-        "text_field",
-        "list_field",
-        "fallback_field",
-    }
+        pytest.param(
+            _TestFlags, 3, _TestFlags.Option_A | _TestFlags.Option_B, id="flag_integer"
+        ),
+        pytest.param(
+            _TestFlags,
+            "03",
+            _TestFlags.Option_A | _TestFlags.Option_B,
+            id="flag_numeric_text",
+        ),
+        pytest.param(
+            _TestFlags,
+            "Option_A | Option_B",
+            _TestFlags.Option_A | _TestFlags.Option_B,
+            id="flag_pipe_text",
+        ),
+        pytest.param(
+            _TestFlags,
+            ["Option A", 2],
+            _TestFlags.Option_A | _TestFlags.Option_B,
+            id="mixed_flag_list",
+        ),
+        pytest.param(
+            zigpy.types.uint8_t, "12", zigpy.types.uint8_t(12), id="integer_text"
+        ),
+        pytest.param(
+            zigpy.types.uint8_t, "0x10", zigpy.types.uint8_t(16), id="integer_hex_text"
+        ),
+        pytest.param(
+            zigpy.types.uint8_t, True, zigpy.types.uint8_t(1), id="integer_bool"
+        ),
+        pytest.param(
+            zigpy.types.Single, "2.75", zigpy.types.Single(2.75), id="float_text"
+        ),
+        pytest.param(
+            zigpy.types.SerializableBytes,
+            "b'abc'",
+            zigpy.types.SerializableBytes(b"abc"),
+            id="bytes_literal",
+        ),
+    ],
+)
+def test_form_value_to_attribute_value_legacy_input(
+    attr_type: type, raw_value: Any, expected_value: object
+) -> None:
+    """Test typed forms preserve scalar inputs accepted by existing services."""
+    converted = form_value_to_attribute_value(raw_value, attr_type)
+    assert isinstance(converted, attr_type)
+    assert converted == expected_value
 
 
 @pytest.mark.parametrize(
@@ -413,22 +269,100 @@ def test_form_value_to_attribute_value_flag_inputs(
     assert form_value_to_attribute_value(raw_value, _TestFlags) == expected_value
 
 
-def test_form_value_to_attribute_value_flag_invalid_member() -> None:
-    """Test invalid flag members are rejected with an explicit error."""
-    with pytest.raises(ValueError, match="Invalid flag member"):
-        form_value_to_attribute_value(["Not A Real Flag"], _TestFlags)
-
-
-def test_form_value_to_attribute_value_flag_invalid_payload_type() -> None:
-    """Test invalid flag list payload items fail loudly."""
-    with pytest.raises(ValueError, match="Flag attributes require"):
-        form_value_to_attribute_value(3, _TestFlags)
-
-
-def test_form_value_to_attribute_value_flag_invalid_item_type() -> None:
-    """Test invalid flag list item types are rejected."""
-    with pytest.raises(ValueError, match="Flag attributes require list items"):
-        form_value_to_attribute_value(["Option A", 2], _TestFlags)
+@pytest.mark.parametrize(
+    ("attr_type", "raw_value", "error"),
+    [
+        pytest.param(
+            _TestFlags,
+            ["Not A Real Flag"],
+            "Invalid value",
+            id="flag_invalid_member",
+        ),
+        pytest.param(
+            _TestEnum, "Not an option", "Invalid value", id="enum_invalid_member"
+        ),
+        pytest.param(_TestEnum, 999, "Invalid value", id="enum_invalid_numeric_member"),
+        pytest.param(bytes, "zz-not-hex", "Invalid value", id="bytes_invalid_hex"),
+        pytest.param(
+            zigpy.types.uint8_t,
+            "not-an-int",
+            "Invalid value",
+            id="integer_invalid_inputs",
+        ),
+        pytest.param(
+            zigpy.types.uint8_t,
+            1.2,
+            "Invalid integer value",
+            id="integer_fractional_float_rejected",
+        ),
+        pytest.param(
+            zigpy.types.uint8_t,
+            256,
+            "Invalid value",
+            id="integer_out_of_range_rejected",
+        ),
+        pytest.param(
+            _TestStruct,
+            {"field_a": "invalid", "field_b": 2},
+            "Invalid value",
+            id="struct_invalid_nested_inputs",
+        ),
+        pytest.param(
+            _TestStruct,
+            {"field_a": 1, "field_b": 2, "extra": 3},
+            "Unexpected struct field",
+            id="struct_unexpected_field",
+        ),
+        pytest.param(
+            _TestStruct,
+            {"field_a": 1},
+            "Missing required struct field",
+            id="struct_missing_required_field",
+        ),
+        pytest.param(
+            _TestStruct,
+            "invalid",
+            "Struct attributes require a dictionary",
+            id="struct_invalid_payload_type",
+        ),
+        pytest.param(
+            _TestList,
+            [{"not_value": 1}],
+            "include a 'value' field",
+            id="list_object_missing_value",
+        ),
+        pytest.param(
+            _TestList,
+            "bad",
+            "List-like attributes require a list/tuple",
+            id="list_invalid_payload_type",
+        ),
+        pytest.param(
+            _TestFixedLengthList,
+            [{"value": 1}, {"value": 2}, {"value": 3}],
+            "requires exactly 2 item",
+            id="fixed_length_list_invalid_size",
+        ),
+        pytest.param(
+            zigpy.types.EUI64,
+            123,
+            "List-like attributes require",
+            id="eui64_invalid_payload_type",
+        ),
+        pytest.param(
+            zigpy.types.KeyData,
+            123,
+            "List-like attributes require",
+            id="keydata_invalid_payload_type",
+        ),
+    ],
+)
+def test_form_value_to_attribute_value_invalid_input(
+    attr_type: type, raw_value: Any, error: str
+) -> None:
+    """Test invalid form input is rejected with a useful error."""
+    with pytest.raises(ValueError, match=error):
+        form_value_to_attribute_value(raw_value, attr_type)
 
 
 @pytest.mark.parametrize(
@@ -439,31 +373,15 @@ def test_form_value_to_attribute_value_bool_inputs(
     raw_value: Any, expected_value: bool
 ) -> None:
     """Test bool conversion consumes strict boolean values."""
-    assert form_value_to_attribute_value(raw_value, zigpy.types.Bool) is expected_value
-
-
-def test_form_value_to_attribute_value_bool_invalid_member() -> None:
-    """Test invalid boolean values are rejected with an explicit error."""
-    with pytest.raises(ValueError, match="Boolean attributes only accept"):
-        form_value_to_attribute_value("true", zigpy.types.Bool)
+    value = form_value_to_attribute_value(raw_value, zigpy.types.Bool)
+    assert isinstance(value, zigpy.types.Bool)
+    assert value == expected_value
 
 
 def test_form_value_to_attribute_value_enum_inputs() -> None:
     """Test enum conversion supports form labels."""
     assert form_value_to_attribute_value("Option A", _TestEnum) is _TestEnum.Option_A
     assert form_value_to_attribute_value("Option B", _TestEnum) is _TestEnum.Option_B
-
-
-def test_form_value_to_attribute_value_enum_invalid_member() -> None:
-    """Test invalid enum inputs are rejected with an explicit error."""
-    with pytest.raises(ValueError, match="Invalid enum"):
-        form_value_to_attribute_value("Not an option", _TestEnum)
-
-
-def test_form_value_to_attribute_value_enum_invalid_numeric_member() -> None:
-    """Test invalid numeric enum inputs are rejected with an explicit error."""
-    with pytest.raises(ValueError, match="Invalid enum value"):
-        form_value_to_attribute_value(999, _TestEnum)
 
 
 def test_form_value_to_attribute_value_bytes_inputs() -> None:
@@ -478,26 +396,11 @@ def test_form_value_to_attribute_value_serializable_bytes_inputs() -> None:
     assert converted.value == b"\x01\x02\xff"
 
 
-def test_form_value_to_attribute_value_bytes_invalid_hex() -> None:
-    """Test invalid hex inputs are rejected for bytes values."""
-    with pytest.raises(ValueError, match="Invalid hex value"):
-        form_value_to_attribute_value("zz-not-hex", bytes)
-
-
-def test_form_value_to_attribute_value_bytes_invalid_payload_type() -> None:
-    """Test non-string bytes payloads are rejected."""
-    with pytest.raises(ValueError, match="Invalid hex value"):
-        form_value_to_attribute_value(123, bytes)
-
-
 @pytest.mark.parametrize("raw_value", ["b'\\x01\\x02\\xff'", "'0102'", "b'abc"])
-@pytest.mark.parametrize("attr_type", [bytes, zigpy.types.SerializableBytes])
-def test_form_value_to_attribute_value_bytes_literal_rejected(
-    raw_value: str, attr_type: type[bytes | zigpy.types.SerializableBytes]
-) -> None:
+def test_form_value_to_attribute_value_bytes_literal_rejected(raw_value: str) -> None:
     """Test bytes-literal text is rejected for byte-like values."""
-    with pytest.raises(ValueError, match="Invalid hex value"):
-        form_value_to_attribute_value(raw_value, attr_type)
+    with pytest.raises(ValueError, match="Invalid value"):
+        form_value_to_attribute_value(raw_value, bytes)
 
 
 def test_form_value_to_attribute_value_float_inputs() -> None:
@@ -511,25 +414,13 @@ def test_form_value_to_attribute_value_float_inputs() -> None:
     assert float(value_from_int) == pytest.approx(2.0)
 
 
-def test_form_value_to_attribute_value_float_invalid_inputs() -> None:
-    """Test invalid float values are rejected."""
-    with pytest.raises(ValueError, match="Invalid float value"):
-        form_value_to_attribute_value("2.75", zigpy.types.Single)
-
-
 def test_form_value_to_attribute_value_float_constructor_error() -> None:
     """Test float conversion normalizes constructor errors."""
     with (
         patch.object(zigpy.types.Single, "__new__", side_effect=ValueError("boom")),
-        pytest.raises(ValueError, match="Invalid float value"),
+        pytest.raises(ValueError, match="Invalid value"),
     ):
         form_value_to_attribute_value(1.25, zigpy.types.Single)
-
-
-def test_form_value_to_attribute_value_integer_invalid_inputs() -> None:
-    """Test invalid integer values are rejected."""
-    with pytest.raises(ValueError, match="Invalid integer value"):
-        form_value_to_attribute_value("not-an-int", zigpy.types.uint8_t)
 
 
 def test_form_value_to_attribute_value_integer_integral_float_input() -> None:
@@ -539,56 +430,12 @@ def test_form_value_to_attribute_value_integer_integral_float_input() -> None:
     assert converted == 1
 
 
-def test_form_value_to_attribute_value_integer_fractional_float_rejected() -> None:
-    """Test integer conversion rejects fractional float payloads."""
-    with pytest.raises(ValueError, match="Invalid integer value"):
-        form_value_to_attribute_value(1.2, zigpy.types.uint8_t)
-
-
-def test_form_value_to_attribute_value_integer_bool_input_rejected() -> None:
-    """Test integer conversion rejects boolean payloads."""
-    with pytest.raises(ValueError, match="Invalid integer value"):
-        form_value_to_attribute_value(True, zigpy.types.uint8_t)
-
-
-def test_form_value_to_attribute_value_integer_out_of_range_rejected() -> None:
-    """Test integer conversion rejects out-of-range values."""
-    with pytest.raises(ValueError, match="Invalid integer value"):
-        form_value_to_attribute_value(256, zigpy.types.uint8_t)
-
-
 def test_form_value_to_attribute_value_struct_inputs() -> None:
     """Test struct conversion consumes object-form values."""
     value = form_value_to_attribute_value({"field_a": 1, "field_b": 2}, _TestStruct)
     assert isinstance(value, _TestStruct)
     assert value.field_a == 1
     assert value.field_b == 2
-
-
-def test_form_value_to_attribute_value_struct_invalid_nested_inputs() -> None:
-    """Test invalid struct fields fail loudly with explicit errors."""
-    with pytest.raises(ValueError, match="Invalid integer value"):
-        form_value_to_attribute_value({"field_a": "invalid", "field_b": 2}, _TestStruct)
-
-
-def test_form_value_to_attribute_value_struct_unexpected_field() -> None:
-    """Test unknown struct fields are rejected."""
-    with pytest.raises(ValueError, match="Unexpected struct field"):
-        form_value_to_attribute_value(
-            {"field_a": 1, "field_b": 2, "extra": 3}, _TestStruct
-        )
-
-
-def test_form_value_to_attribute_value_struct_missing_required_field() -> None:
-    """Test missing required struct fields are rejected."""
-    with pytest.raises(ValueError, match="Missing required struct field"):
-        form_value_to_attribute_value({"field_a": 1}, _TestStruct)
-
-
-def test_form_value_to_attribute_value_struct_invalid_payload_type() -> None:
-    """Test non-dict struct payloads are rejected."""
-    with pytest.raises(ValueError, match="Struct attributes require a dictionary"):
-        form_value_to_attribute_value("invalid", _TestStruct)
 
 
 def test_form_value_to_attribute_value_struct_passthrough_instance() -> None:
@@ -613,30 +460,10 @@ def test_form_value_to_attribute_value_list_object_inputs() -> None:
     assert value == [1, 2, 3]
 
 
-def test_form_value_to_attribute_value_list_object_missing_value() -> None:
-    """Test list-like conversion rejects malformed object-list payloads."""
-    with pytest.raises(ValueError, match="include a 'value' field"):
-        form_value_to_attribute_value([{"not_value": 1}], _TestList)
-
-
-def test_form_value_to_attribute_value_list_invalid_payload_type() -> None:
-    """Test list-like conversion rejects non-list payloads."""
-    with pytest.raises(ValueError, match="List-like attributes require a list/tuple"):
-        form_value_to_attribute_value("bad", _TestList)
-
-
 def test_form_value_to_attribute_value_list_passthrough_instance() -> None:
     """Test list-like values already typed are accepted as-is."""
     value = _TestList([1, 2, 3])
     assert form_value_to_attribute_value(value, _TestList) is value
-
-
-def test_form_value_to_attribute_value_fixed_length_list_invalid_size() -> None:
-    """Test fixed-length list-like conversion rejects invalid list sizes."""
-    with pytest.raises(ValueError, match="requires exactly 2 item"):
-        form_value_to_attribute_value(
-            [{"value": 1}, {"value": 2}, {"value": 3}], _TestFixedLengthList
-        )
 
 
 def test_form_value_to_attribute_value_eui64_inputs() -> None:
@@ -652,12 +479,6 @@ def test_form_value_to_attribute_value_eui64_passthrough_instance() -> None:
     assert form_value_to_attribute_value(value, zigpy.types.EUI64) is value
 
 
-def test_form_value_to_attribute_value_eui64_invalid_payload_type() -> None:
-    """Test non-string EUI64 payloads are rejected."""
-    with pytest.raises(ValueError, match="Invalid EUI64 value"):
-        form_value_to_attribute_value(123, zigpy.types.EUI64)
-
-
 def test_form_value_to_attribute_value_keydata_inputs() -> None:
     """Test KeyData conversion accepts compact hex text."""
     value = form_value_to_attribute_value(
@@ -671,12 +492,6 @@ def test_form_value_to_attribute_value_keydata_passthrough_instance() -> None:
     """Test KeyData values already typed are accepted as-is."""
     value = zigpy.types.KeyData.convert("000102030405060708090a0b0c0d0e0f")
     assert form_value_to_attribute_value(value, zigpy.types.KeyData) is value
-
-
-def test_form_value_to_attribute_value_keydata_invalid_payload_type() -> None:
-    """Test non-string KeyData payloads are rejected."""
-    with pytest.raises(ValueError, match="Invalid KeyData value"):
-        form_value_to_attribute_value(123, zigpy.types.KeyData)
 
 
 def test_form_value_to_attribute_value_none_passthrough() -> None:
@@ -786,6 +601,46 @@ def test_unnamed_enum_and_bitmap_round_trip(attr_type: type, value: int) -> None
     converted = form_value_to_attribute_value(validated["value"], attr_type)
     assert isinstance(converted, attr_type)
     assert converted == value
+
+
+@pytest.mark.parametrize(
+    ("attr_type", "value"),
+    [
+        pytest.param(
+            homeautomation.ApplianceIdentification.AttributeDefs.basic_identification.type,
+            2**53 + 1,
+            id="appliance_identification",
+        ),
+        pytest.param(zigpy.types.uint64_t, 2**64 - 1, id="uint64_max"),
+        pytest.param(zigpy.types.int64s, -(2**63) + 1, id="int64_negative"),
+        pytest.param(zigpy.types.int64s, 2**63 - 1, id="int64_max"),
+        pytest.param(zigpy.types.bitmap64, 2**64 - 1, id="bitmap64_max"),
+        pytest.param(zigpy.types.enum64, 2**64 - 1, id="enum64_max"),
+        pytest.param(zigpy.types.uint64_t, 1, id="small_value_in_wide_type"),
+    ],
+)
+def test_large_integer_form_round_trip(attr_type: type, value: int) -> None:
+    """Preserve every integer bit through text form validation and conversion."""
+    raw_value = attr_type(value)
+    form_value = attribute_value_to_form_value(raw_value, attr_type)
+    assert form_value == str(value)
+    validated = attribute_type_to_vol_schema(attr_type)({"value": form_value})
+    converted = form_value_to_attribute_value(validated["value"], attr_type)
+    assert isinstance(converted, attr_type)
+    assert converted.serialize() == raw_value.serialize()
+
+
+def test_nested_large_integer_form_round_trip() -> None:
+    """Preserve exact integer text inside struct and list form controls."""
+    raw_value = _LargeIntegerStruct(signed=-(2**63) + 1, unsigned=[2**64 - 1])
+    form_value = attribute_value_to_form_value(raw_value, _LargeIntegerStruct)
+    assert form_value == {
+        "signed": "-9223372036854775807",
+        "unsigned": [{"value": "18446744073709551615"}],
+    }
+    validated = attribute_type_to_vol_schema(_LargeIntegerStruct)({"value": form_value})
+    converted = form_value_to_attribute_value(validated["value"], _LargeIntegerStruct)
+    assert converted.serialize() == raw_value.serialize()
 
 
 def test_attribute_value_to_form_value_none_returns_none() -> None:

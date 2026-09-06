@@ -1,0 +1,574 @@
+# serializer version: 1
+# name: test_device_cluster_attributes
+  list([
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'selector': dict({
+            'number': dict({
+              'max': 65535.0,
+              'min': 0.0,
+              'mode': 'box',
+              'step': 1.0,
+            }),
+          }),
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 1,
+        'id': 65533,
+        'is_manufacturer_specific': None,
+        'mandatory': True,
+        'manufacturer_code': None,
+        'name': 'cluster_revision',
+        'type': 'uint16_t',
+        'zcl_type': 33,
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'type': 'boolean',
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 1,
+        'id': 16384,
+        'is_manufacturer_specific': None,
+        'mandatory': False,
+        'manufacturer_code': None,
+        'name': 'global_scene_control',
+        'type': 'Bool',
+        'zcl_type': 16,
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'selector': dict({
+            'number': dict({
+              'max': 65535.0,
+              'min': 0.0,
+              'mode': 'box',
+              'step': 1.0,
+            }),
+          }),
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 3,
+        'id': 16386,
+        'is_manufacturer_specific': None,
+        'mandatory': False,
+        'manufacturer_code': None,
+        'name': 'off_wait_time',
+        'type': 'uint16_t',
+        'zcl_type': 33,
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'type': 'boolean',
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 25,
+        'id': 0,
+        'is_manufacturer_specific': None,
+        'mandatory': True,
+        'manufacturer_code': None,
+        'name': 'on_off',
+        'type': 'Bool',
+        'zcl_type': 16,
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'selector': dict({
+            'number': dict({
+              'max': 65535.0,
+              'min': 0.0,
+              'mode': 'box',
+              'step': 1.0,
+            }),
+          }),
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 3,
+        'id': 16385,
+        'is_manufacturer_specific': None,
+        'mandatory': False,
+        'manufacturer_code': None,
+        'name': 'on_time',
+        'type': 'uint16_t',
+        'zcl_type': 33,
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'options': list([
+            list([
+              'Pending',
+              'Pending',
+            ]),
+            list([
+              'Attribute Reporting Complete',
+              'Attribute Reporting Complete',
+            ]),
+          ]),
+          'required': True,
+          'type': 'select',
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 1,
+        'id': 65534,
+        'is_manufacturer_specific': None,
+        'mandatory': False,
+        'manufacturer_code': None,
+        'name': 'reporting_status',
+        'type': 'AttributeReportingStatus',
+        'zcl_type': 48,
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'options': list([
+            list([
+              'Off',
+              'Off',
+            ]),
+            list([
+              'On',
+              'On',
+            ]),
+            list([
+              'Toggle',
+              'Toggle',
+            ]),
+            list([
+              'PreviousValue',
+              'PreviousValue',
+            ]),
+          ]),
+          'required': True,
+          'type': 'select',
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 3,
+        'id': 16387,
+        'is_manufacturer_specific': None,
+        'mandatory': False,
+        'manufacturer_code': None,
+        'name': 'start_up_on_off',
+        'type': 'StartUpOnOff',
+        'zcl_type': 48,
+      }),
+    }),
+  ])
+# ---
+# name: test_device_cluster_attributes_complex_schema_shapes
+  list([
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'selector': dict({
+            'object': dict({
+              'fields': dict({
+                'field_a': dict({
+                  'required': True,
+                  'selector': dict({
+                    'number': dict({
+                      'max': 255.0,
+                      'min': 0.0,
+                      'mode': 'box',
+                      'step': 1.0,
+                    }),
+                  }),
+                }),
+                'field_b': dict({
+                  'required': True,
+                  'selector': dict({
+                    'number': dict({
+                      'max': 65535.0,
+                      'min': 0.0,
+                      'mode': 'box',
+                      'step': 1.0,
+                    }),
+                  }),
+                }),
+              }),
+              'label_field': 'field_a',
+              'multiple': False,
+            }),
+          }),
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 11,
+        'id': 101,
+        'is_manufacturer_specific': None,
+        'mandatory': False,
+        'manufacturer_code': None,
+        'name': 'custom_struct',
+        'type': '_ServiceTestStruct',
+        'zcl_type': 255,
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'selector': dict({
+            'object': dict({
+              'fields': dict({
+                'value': dict({
+                  'required': True,
+                  'selector': dict({
+                    'number': dict({
+                      'max': 255.0,
+                      'min': 0.0,
+                      'mode': 'box',
+                      'step': 1.0,
+                    }),
+                  }),
+                }),
+              }),
+              'label_field': 'value',
+              'multiple': True,
+            }),
+          }),
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 11,
+        'id': 102,
+        'is_manufacturer_specific': None,
+        'mandatory': False,
+        'manufacturer_code': None,
+        'name': 'custom_list',
+        'type': '_ServiceTestList',
+        'zcl_type': 255,
+      }),
+    }),
+    dict({
+      'fixed_length': 2,
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'selector': dict({
+            'object': dict({
+              'fields': dict({
+                'value': dict({
+                  'required': True,
+                  'selector': dict({
+                    'number': dict({
+                      'max': 255.0,
+                      'min': 0.0,
+                      'mode': 'box',
+                      'step': 1.0,
+                    }),
+                  }),
+                }),
+              }),
+              'label_field': 'value',
+              'multiple': True,
+            }),
+          }),
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 11,
+        'id': 103,
+        'is_manufacturer_specific': None,
+        'mandatory': False,
+        'manufacturer_code': None,
+        'name': 'custom_fixed_list',
+        'type': '_ServiceTestFixedLengthList',
+        'zcl_type': 255,
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'selector': dict({
+            'number': dict({
+              'mode': 'box',
+              'step': 'any',
+            }),
+          }),
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 11,
+        'id': 104,
+        'is_manufacturer_specific': None,
+        'mandatory': False,
+        'manufacturer_code': None,
+        'name': 'custom_float',
+        'type': 'Single',
+        'zcl_type': 57,
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'type': 'string',
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 11,
+        'id': 105,
+        'is_manufacturer_specific': None,
+        'mandatory': False,
+        'manufacturer_code': None,
+        'name': 'custom_eui64',
+        'type': 'EUI64',
+        'zcl_type': 240,
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'type': 'string',
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 11,
+        'id': 106,
+        'is_manufacturer_specific': None,
+        'mandatory': False,
+        'manufacturer_code': None,
+        'name': 'custom_key_data',
+        'type': 'KeyData',
+        'zcl_type': 241,
+      }),
+    }),
+  ])
+# ---
+# name: test_device_cluster_attributes_include_manufacturer_specific_defs
+  list([
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'type': 'boolean',
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 1,
+        'id': 4660,
+        'is_manufacturer_specific': False,
+        'mandatory': False,
+        'manufacturer_code': None,
+        'name': 'shared_attr',
+        'type': 'Bool',
+        'zcl_type': 16,
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'type': 'boolean',
+        }),
+      ]),
+      'zcl_attribute': dict({
+        'access': 1,
+        'id': 4660,
+        'is_manufacturer_specific': True,
+        'mandatory': False,
+        'manufacturer_code': 4660,
+        'name': 'shared_attr_manufacturer',
+        'type': 'Bool',
+        'zcl_type': 16,
+      }),
+    }),
+  ])
+# ---
+# name: test_device_cluster_commands
+  list([
+    dict({
+      'schema': list([
+      ]),
+      'zcl_command': dict({
+        'command_type': 'server',
+        'id': 0,
+        'is_manufacturer_specific': None,
+        'manufacturer_code': None,
+        'name': 'off',
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'effect_id',
+          'options': list([
+            list([
+              'Delayed All Off',
+              'Delayed All Off',
+            ]),
+            list([
+              'Dying Light',
+              'Dying Light',
+            ]),
+          ]),
+          'required': True,
+          'type': 'select',
+        }),
+        dict({
+          'name': 'effect_variant',
+          'required': True,
+          'selector': dict({
+            'number': dict({
+              'max': 255.0,
+              'min': 0.0,
+              'mode': 'box',
+              'step': 1.0,
+            }),
+          }),
+        }),
+      ]),
+      'zcl_command': dict({
+        'command_type': 'server',
+        'id': 64,
+        'is_manufacturer_specific': None,
+        'manufacturer_code': None,
+        'name': 'off_with_effect',
+      }),
+    }),
+    dict({
+      'schema': list([
+      ]),
+      'zcl_command': dict({
+        'command_type': 'server',
+        'id': 1,
+        'is_manufacturer_specific': None,
+        'manufacturer_code': None,
+        'name': 'on',
+      }),
+    }),
+    dict({
+      'schema': list([
+      ]),
+      'zcl_command': dict({
+        'command_type': 'server',
+        'id': 65,
+        'is_manufacturer_specific': None,
+        'manufacturer_code': None,
+        'name': 'on_with_recall_global_scene',
+      }),
+    }),
+    dict({
+      'schema': list([
+        dict({
+          'name': 'on_off_control',
+          'options': dict({
+            'Accept Only When On': 'Accept Only When On',
+          }),
+          'required': True,
+          'type': 'multi_select',
+        }),
+        dict({
+          'name': 'on_time',
+          'required': True,
+          'selector': dict({
+            'number': dict({
+              'max': 65535.0,
+              'min': 0.0,
+              'mode': 'box',
+              'step': 1.0,
+            }),
+          }),
+        }),
+        dict({
+          'name': 'off_wait_time',
+          'required': True,
+          'selector': dict({
+            'number': dict({
+              'max': 65535.0,
+              'min': 0.0,
+              'mode': 'box',
+              'step': 1.0,
+            }),
+          }),
+        }),
+      ]),
+      'zcl_command': dict({
+        'command_type': 'server',
+        'id': 66,
+        'is_manufacturer_specific': None,
+        'manufacturer_code': None,
+        'name': 'on_with_timed_off',
+      }),
+    }),
+    dict({
+      'schema': list([
+      ]),
+      'zcl_command': dict({
+        'command_type': 'server',
+        'id': 2,
+        'is_manufacturer_specific': None,
+        'manufacturer_code': None,
+        'name': 'toggle',
+      }),
+    }),
+  ])
+# ---
+# name: test_device_cluster_commands_manufacturer_metadata
+  list([
+    dict({
+      'schema': list([
+        dict({
+          'name': 'value',
+          'required': True,
+          'selector': dict({
+            'number': dict({
+              'max': 255.0,
+              'min': 0.0,
+              'mode': 'box',
+              'step': 1.0,
+            }),
+          }),
+        }),
+      ]),
+      'zcl_command': dict({
+        'command_type': 'server',
+        'id': 136,
+        'is_manufacturer_specific': True,
+        'manufacturer_code': 4660,
+        'name': 'manufacturer_command',
+      }),
+    }),
+  ])
+# ---
