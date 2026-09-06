@@ -715,6 +715,30 @@ def test_attribute_value_to_form_value_struct_inputs() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(_TestOptionalStruct(required=1), {"required": 1}, id="omitted"),
+        pytest.param(
+            _TestOptionalStruct(required=1, optional=2),
+            {"required": 1, "optional": 2},
+            id="provided",
+        ),
+    ],
+)
+def test_optional_struct_form_round_trip(
+    value: _TestOptionalStruct, expected: dict[str, int]
+) -> None:
+    """Omit absent optional fields so their controls accept read form values."""
+    form_value = attribute_value_to_form_value(value, _TestOptionalStruct)
+    assert form_value == expected
+    validated = attribute_type_to_probatio_schema(_TestOptionalStruct)(
+        {"value": form_value}
+    )
+    converted = form_value_to_attribute_value(validated["value"], _TestOptionalStruct)
+    assert converted.serialize() == _TestOptionalStruct(**expected).serialize()
+
+
 def test_attribute_value_to_form_value_struct_drops_unknown_fields() -> None:
     """Test struct form conversion drops keys not declared in the struct."""
     form_value = attribute_value_to_form_value(

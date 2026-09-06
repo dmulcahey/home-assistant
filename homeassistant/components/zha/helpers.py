@@ -1370,7 +1370,7 @@ def _struct_attribute_value_to_form_value(
     if isinstance(value, dict):
         raw_data: dict[str, Any] = value
     elif isinstance(value, zigpy.types.Struct):
-        raw_data = value.as_dict()
+        raw_data = value.as_dict(skip_missing=True)
     else:
         return str(value)
 
