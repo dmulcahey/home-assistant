@@ -38,8 +38,16 @@ def device_info_response(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.fixture
+def consumption_status() -> int:
+    """Return the HTTP status for consumption requests."""
+    return HTTPStatus.OK
+
+
+@pytest.fixture
 def aioclient_mock_fixture(
-    aioclient_mock: AiohttpClientMocker, device_info_response: str
+    aioclient_mock: AiohttpClientMocker,
+    device_info_response: str,
+    consumption_status: int,
 ) -> None:
     """Fixture to provide a aioclient mocker."""
     now = round(time.time())
@@ -84,7 +92,7 @@ def aioclient_mock_fixture(
     aioclient_mock.get(
         "https://api-gw.meetflo.com/api/v2/water/consumption",
         text=load_fixture("flo/water_consumption_info_response.json"),
-        status=HTTPStatus.OK,
+        status=consumption_status,
         headers={"Content-Type": CONTENT_TYPE_JSON},
     )
     # Mocks the location info for flo.

@@ -105,7 +105,7 @@ async def test_manual_update_entity(
         {ATTR_ENTITY_ID: ["sensor.smart_water_shutoff_current_system_mode"]},
         blocking=True,
     )
-    assert aioclient_mock.call_count == call_count + 3
+    assert aioclient_mock.call_count == call_count + 2
 
 
 @pytest.mark.parametrize("device_info_response", [225, 212, 220], indirect=True)

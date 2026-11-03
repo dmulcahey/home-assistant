@@ -65,6 +65,33 @@ class FloDailyUsageSensor(FloEntity, SensorEntity):
 
     @property
     @override
+    def available(self) -> bool:
+        """Return availability of both the device and consumption data."""
+        consumption = self._device.consumption
+        return (
+            super().available
+            and consumption is not None
+            and consumption.last_update_success
+            and consumption.fresh
+        )
+
+    @override
+    async def async_update(self) -> None:
+        """Refresh consumption on a manual update."""
+        assert self._device.consumption is not None
+        await self._device.consumption.async_request_refresh()
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Listen for both device availability and consumption updates."""
+        await super().async_added_to_hass()
+        assert self._device.consumption is not None
+        self.async_on_remove(
+            self._device.consumption.async_add_listener(self.async_write_ha_state)
+        )
+
+    @property
+    @override
     def native_value(self) -> float | None:
         """Return the current daily usage."""
         if self._device.consumption_today is None:

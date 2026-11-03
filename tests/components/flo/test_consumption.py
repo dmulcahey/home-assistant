@@ -1,0 +1,303 @@
+"""Test isolation and freshness of optional Flo consumption."""
+
+import asyncio
+from datetime import timedelta
+import math
+from unittest.mock import patch
+
+from aioflo.errors import RequestError
+from freezegun.api import FrozenDateTimeFactory
+import pytest
+from pytest_homeassistant.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+    async_load_json_object_fixture,
+)
+from pytest_homeassistant.test_util.aiohttp import AiohttpClientMocker
+
+from homeassistant.components.homeassistant import (
+    DOMAIN as HOMEASSISTANT_DOMAIN,
+    SERVICE_UPDATE_ENTITY,
+)
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE
+from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_setup_component
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+
+USAGE = "sensor.smart_water_shutoff_today_s_water_usage"
+MODE = "sensor.smart_water_shutoff_current_system_mode"
+
+
+async def async_refresh_entity(hass: HomeAssistant, entity_id: str) -> None:
+    """Request a user-visible manual entity refresh."""
+    await async_setup_component(hass, HOMEASSISTANT_DOMAIN, {})
+    await hass.services.async_call(
+        HOMEASSISTANT_DOMAIN,
+        SERVICE_UPDATE_ENTITY,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
+@pytest.mark.parametrize("error", [RequestError("offline"), TimeoutError()])
+async def test_optional_startup_failure(
+    hass: HomeAssistant, config_entry: MockConfigEntry, error: Exception
+) -> None:
+    """Optional failure must not prevent live entities and controls loading."""
+    config_entry.add_to_hass(hass)
+    with patch("aioflo.water.Water.get_consumption_info", side_effect=error):
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.LOADED
+    assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
+    assert hass.states.get(MODE).state == "home"
+    assert (
+        hass.states.get("sensor.kitchen_sink_temperature").state == "16.1111111111111"
+    )
+    assert hass.states.get("switch.smart_water_shutoff_shutoff_valve").state == "on"
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
+async def test_metadata_required(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """First startup retries if required device metadata is unavailable."""
+    config_entry.add_to_hass(hass)
+    with patch("aioflo.device.Device.get_info", side_effect=RequestError("offline")):
+        assert not await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.SETUP_RETRY
+    assert not hass.states.async_all()
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
+@pytest.mark.parametrize("total", [None, True, -1, math.nan, math.inf, "0"])
+async def test_invalid_total_preserves_last_good(
+    hass: HomeAssistant, config_entry: MockConfigEntry, total: object
+) -> None:
+    """Invalid totals must not overwrite a previously successful sample."""
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    device = config_entry.runtime_data.devices[0]
+    consumption = device.consumption
+    previous = consumption.data
+    with patch(
+        "aioflo.water.Water.get_consumption_info",
+        return_value={"aggregations": {"sumTotalGallonsConsumed": total}},
+    ):
+        await async_refresh_entity(hass, USAGE)
+    assert consumption.data == previous
+    assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
+    assert hass.states.get(MODE).state == "home"
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
+async def test_failure_recovery_manual_refresh_and_unload(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """Failure isolation, real zero recovery, and listener/poll cleanup."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    device = config_entry.runtime_data.devices[0]
+    consumption = device.consumption
+    previous = consumption.data
+    with patch(
+        "aioflo.water.Water.get_consumption_info", side_effect=RequestError("offline")
+    ):
+        for _ in range(4):
+            freezer.tick(timedelta(seconds=65))
+            async_fire_time_changed(hass)
+            await hass.async_block_till_done()
+    assert consumption.data == previous
+    assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
+    assert hass.states.get(MODE).state == "home"
+    assert (
+        hass.states.get("binary_sensor.smart_water_shutoff_pending_system_alerts").state
+        == "on"
+    )
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {ATTR_ENTITY_ID: "switch.smart_water_shutoff_shutoff_valve"},
+        blocking=True,
+    )
+    assert hass.states.get("switch.smart_water_shutoff_shutoff_valve").state == "off"
+    await async_setup_component(hass, HOMEASSISTANT_DOMAIN, {})
+    with patch(
+        "aioflo.water.Water.get_consumption_info",
+        return_value={"aggregations": {"sumTotalGallonsConsumed": 0}},
+    ) as water:
+        await hass.services.async_call(
+            HOMEASSISTANT_DOMAIN,
+            SERVICE_UPDATE_ENTITY,
+            {ATTR_ENTITY_ID: USAGE},
+            blocking=True,
+        )
+        water.assert_awaited_once()
+    assert hass.states.get(USAGE).state == "0"
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
+    assert not consumption._listeners
+    assert not device._listeners
+    calls = aioclient_mock.call_count
+    freezer.tick(timedelta(minutes=5))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert aioclient_mock.call_count == calls
+    with patch("aioflo.water.Water.get_consumption_info") as water:
+        await hass.config.async_update(time_zone="America/New_York")
+        await hass.async_block_till_done()
+        water.assert_not_called()
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
+async def test_midnight_response(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A request completing after midnight must not publish yesterday's total."""
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    consumption = config_entry.runtime_data.devices[0].consumption
+    previous = consumption.data
+
+    async def cross_midnight(*args: object, **kwargs: object) -> dict:
+        freezer.tick(timedelta(days=1))
+        return {"aggregations": {"sumTotalGallonsConsumed": 100}}
+
+    with patch("aioflo.water.Water.get_consumption_info", side_effect=cross_midnight):
+        await async_refresh_entity(hass, USAGE)
+    assert consumption.data == previous
+    assert not consumption.fresh
+    assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
+    assert hass.states.get(MODE).state == "home"
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
+async def test_timezone_change(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+) -> None:
+    """Time zone changes invalidate old usage and request a new sample."""
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    consumption = config_entry.runtime_data.devices[0].consumption
+    with patch(
+        "aioflo.water.Water.get_consumption_info", side_effect=RequestError("offline")
+    ) as water:
+        await hass.config.async_update(time_zone="America/New_York")
+        await hass.async_block_till_done()
+        water.assert_awaited_once()
+    assert not consumption.fresh
+    assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
+    assert hass.states.get(MODE).state == "home"
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
+@pytest.mark.parametrize("payload", [{}, {"aggregations": {}}, {"aggregations": None}])
+async def test_missing_total(
+    hass: HomeAssistant, config_entry: MockConfigEntry, payload: dict[str, object]
+) -> None:
+    """Missing consumption must not be invented as zero."""
+    config_entry.add_to_hass(hass)
+    with patch("aioflo.water.Water.get_consumption_info", return_value=payload):
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
+    assert hass.states.get(MODE).state == "home"
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
+@pytest.mark.parametrize("consumption_status", [500])
+async def test_http_failure(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+) -> None:
+    """An actual library HTTP failure is isolated from live endpoints."""
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
+    assert hass.states.get(MODE).state == "home"
+    assert (
+        hass.states.get("binary_sensor.smart_water_shutoff_pending_system_alerts").state
+        == "on"
+    )
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
+async def test_timezone_changes_during_request(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+) -> None:
+    """An old-zone response cannot replace last-good data."""
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    consumption = config_entry.runtime_data.devices[0].consumption
+    previous = consumption.data
+
+    async def change_zone(*args: object, **kwargs: object) -> dict[str, object]:
+        await hass.config.async_update(time_zone="America/New_York")
+        return {"aggregations": {"sumTotalGallonsConsumed": 100}}
+
+    with patch("aioflo.water.Water.get_consumption_info", side_effect=change_zone):
+        await async_refresh_entity(hass, USAGE)
+        assert consumption.data == previous
+        assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
+    await hass.async_block_till_done()
+    assert hass.states.get(MODE).state == "home"
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
+async def test_slow_consumption_does_not_delay_telemetry(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+) -> None:
+    """Live telemetry and alerts update while consumption is still waiting."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    started = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def slow_consumption(*args: object, **kwargs: object) -> dict[str, object]:
+        started.set()
+        await finish.wait()
+        return {"aggregations": {"sumTotalGallonsConsumed": 10}}
+
+    info = await async_load_json_object_fixture(hass, "flo/device_info_response.json")
+    info["telemetry"]["current"]["gpm"] = 2
+    info["notifications"]["pending"]["warningCount"] = 0
+    with patch("aioflo.water.Water.get_consumption_info", side_effect=slow_consumption):
+        task = hass.async_create_task(async_refresh_entity(hass, USAGE))
+        await started.wait()
+        try:
+            with patch("aioflo.device.Device.get_info", return_value=info):
+                await async_refresh_entity(hass, MODE)
+            assert (
+                hass.states.get("sensor.smart_water_shutoff_water_flow_rate").state
+                == "2"
+            )
+            assert (
+                hass.states.get(
+                    "binary_sensor.smart_water_shutoff_pending_system_alerts"
+                ).state
+                == "off"
+            )
+            assert not task.done()
+        finally:
+            finish.set()
+            await task
+    assert hass.states.get(USAGE).state == "10"

@@ -14,7 +14,12 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .const import CONF_USE_SSO, DOMAIN
-from .coordinator import FloConfigEntry, FloDeviceDataUpdateCoordinator, FloRuntimeData
+from .coordinator import (
+    FloConfigEntry,
+    FloConsumptionDataUpdateCoordinator,
+    FloDeviceDataUpdateCoordinator,
+    FloRuntimeData,
+)
 from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -87,8 +92,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: FloConfigEntry) -> None:
         for device in location["devices"]
     ]
 
-    tasks = [device.async_refresh() for device in devices]
+    tasks = [device.async_config_entry_first_refresh() for device in devices]
     await asyncio.gather(*tasks)
+
+    consumption_tasks = []
+    for device in devices:
+        if device.device_type != "puck_oem":
+            device.consumption = FloConsumptionDataUpdateCoordinator(
+                hass, entry, device
+            )
+            consumption_tasks.append(device.consumption.async_refresh())
+    await asyncio.gather(*consumption_tasks)
 
     entry.runtime_data = FloRuntimeData(client=client, devices=devices)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
