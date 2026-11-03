@@ -39,10 +39,10 @@ async def async_get_flo_api(
             await async_get_api(username, password, session=session, use_sso=use_sso),
             use_sso,
         )
-    except RequestError as err:
+    except RequestError:
         if use_sso:
             raise
-        _LOGGER.info("Legacy Flo auth failed (%s); retrying with Moen SSO", err)
+        _LOGGER.info("Legacy Flo auth failed; retrying with Moen SSO")
         return (
             await async_get_api(username, password, session=session, use_sso=True),
             True,
@@ -75,9 +75,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: FloConfigEntry) -> None:
             entry, data={**entry.data, CONF_USE_SSO: True}
         )
 
-    user_info = await client.user.get_info(include_location_info=True)
-
-    _LOGGER.debug("Flo user information with locations: %s", user_info)
+    try:
+        user_info = await client.user.get_info(include_location_info=True)
+    except RequestError as err:
+        raise ConfigEntryNotReady("Unable to discover Flo devices") from err
 
     devices = [
         FloDeviceDataUpdateCoordinator(
