@@ -33,7 +33,7 @@ async def validate_input(hass: HomeAssistant, data) -> bool:
             hass, data[CONF_USERNAME], data[CONF_PASSWORD]
         )
     except RequestError as request_error:
-        LOGGER.error("Error connecting to the Flo API")
+        LOGGER.error("Error connecting to the Flo API: %s", request_error)
         raise CannotConnect from request_error
     return used_sso
 

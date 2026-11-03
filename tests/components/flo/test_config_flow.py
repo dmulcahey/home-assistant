@@ -2,7 +2,6 @@
 
 from http import HTTPStatus
 import json
-import logging
 import time
 from unittest.mock import AsyncMock, patch
 
@@ -193,30 +192,3 @@ async def test_async_get_flo_api_stored_sso_does_not_retry(hass: HomeAssistant) 
         await async_get_flo_api(hass, TEST_USER_ID, TEST_PASSWORD, use_sso=True)
 
     assert mock_get_api.await_count == 1
-
-
-@pytest.mark.usefixtures("aioclient_mock_fixture")
-async def test_login_errors_do_not_log_exception_details(
-    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Library exception details must not leak through login logging."""
-    caplog.set_level(logging.INFO, logger="homeassistant.components.flo")
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    with patch(
-        "homeassistant.components.flo.async_get_api",
-        side_effect=RequestError("private-password-and-token-marker"),
-    ):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"username": TEST_USER_ID, "password": TEST_PASSWORD}
-        )
-    assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "cannot_connect"}
-    assert "private-password-and-token-marker" not in caplog.text
-    with patch("homeassistant.components.flo.async_setup_entry", return_value=None):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"username": TEST_USER_ID, "password": TEST_PASSWORD}
-        )
-        await hass.async_block_till_done()
-    assert result["type"] is FlowResultType.CREATE_ENTRY

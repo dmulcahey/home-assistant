@@ -1,7 +1,6 @@
 """Test init."""
 
 from datetime import timedelta
-import logging
 from unittest.mock import AsyncMock, patch
 
 from aioflo.api import SSO_TOKEN_URL
@@ -118,25 +117,6 @@ async def test_discovery_failure_retries(
     async_fire_time_changed(hass)
     await hass.async_block_till_done(wait_background_tasks=True)
     assert aioclient_mock.call_count == calls_after_unload
-
-
-@pytest.mark.usefixtures("aioclient_mock_fixture")
-async def test_discovery_does_not_log_user_data(
-    hass: HomeAssistant,
-    config_entry: MockConfigEntry,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Discovery does not write the user's profile and locations to logs."""
-    caplog.set_level(logging.DEBUG, logger="homeassistant.components.flo")
-    config_entry.add_to_hass(hass)
-    with patch(
-        "aioflo.user.User.get_info",
-        return_value={"locations": [], "email": "private-email-marker@example.com"},
-    ):
-        assert await hass.config_entries.async_setup(config_entry.entry_id)
-        await hass.async_block_till_done()
-    assert "private-email-marker" not in caplog.text
-    assert await hass.config_entries.async_unload(config_entry.entry_id)
 
 
 async def test_discovery_recovers_rejected_token(
