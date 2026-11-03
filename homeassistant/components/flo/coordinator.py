@@ -52,7 +52,12 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
         self._flo_device_id: str = device_id
         self._manufacturer: str = "Flo by Moen"
         self._device_information: dict[str, Any] = {}
-        self.consumption: FloConsumptionDataUpdateCoordinator | None = None
+        self._water_usage: dict[str, Any] = {}
+        self._consumption_day: tuple[date, str] | None = None
+        self._consumption_success = False
+        self._consumption_active = False
+        self._consumption_task: asyncio.Task[None] | None = None
+        self._unsub_midnight: Callable[[], None] | None = None
         super().__init__(
             hass,
             LOGGER,
@@ -64,6 +69,7 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
     @override
     async def _async_update_data(self) -> None:
         """Update data via library."""
+        self._async_request_consumption()
         try:
             async with asyncio.timeout(20):
                 await self.send_presence_ping()
@@ -162,9 +168,17 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
     @property
     def consumption_today(self) -> float | None:
         """Return the current consumption for today in gallons."""
-        if self.consumption is None or not self.consumption.fresh:
+        if not self.consumption_available:
             return None
-        return self.consumption.data.gallons
+        return self._water_usage["aggregations"]["sumTotalGallonsConsumed"]
+
+    @property
+    def consumption_available(self) -> bool:
+        """Return whether consumption succeeded for the current local day."""
+        return self._consumption_success and self._consumption_day == (
+            dt_util.now().date(),
+            self.hass.config.time_zone,
+        )
 
     @property
     def firmware_version(self) -> str:
@@ -249,152 +263,106 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
         )
         LOGGER.debug("Flo device data: %s", self._device_information)
 
-
-@dataclass(frozen=True)
-class FloConsumptionData:
-    """A successful consumption reading and its local day."""
-
-    gallons: float
-    day: date
-    time_zone: str
-
-
-class FloConsumptionDataUpdateCoordinator(DataUpdateCoordinator[FloConsumptionData]):
-    """Poll optional consumption independently of live device telemetry."""
-
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        entry: FloConfigEntry,
-        device: FloDeviceDataUpdateCoordinator,
-    ) -> None:
-        """Initialize consumption polling."""
-        super().__init__(
-            hass,
-            LOGGER,
-            config_entry=entry,
-            name=f"{DOMAIN}-{device.id}-consumption",
-            update_interval=timedelta(seconds=60),
-        )
-        self.device = device
-        self._entry = entry
-        self._active = False
-        self._unsub_midnight: Callable[[], None] | None = None
-        self._refresh_tasks: set[asyncio.Task] = set()
-
     @callback
-    def async_start(self) -> Callable[[], None]:
-        """Start optional work only while the consumption entity is listening."""
-        self._active = True
+    def async_start_consumption_updates(self) -> Callable[[], None]:
+        """Enable optional updates while the daily usage sensor is present."""
+        self._consumption_active = True
         unsub_config = self.hass.bus.async_listen(
             EVENT_CORE_CONFIG_UPDATE, self._async_config_updated
         )
-        self._async_schedule_midnight()
-        self._async_request_background_refresh(initial=True)
+        self._async_consumption_day_changed()
 
         @callback
         def stop() -> None:
-            self._active = False
+            self._consumption_active = False
             unsub_config()
             if self._unsub_midnight is not None:
                 self._unsub_midnight()
-                self._unsub_midnight = None
-            for task in self._refresh_tasks.copy():
-                task.cancel()
+            if self._consumption_task is not None:
+                self._consumption_task.cancel()
 
         return stop
 
     @callback
-    def _async_request_background_refresh(self, *, initial: bool = False) -> None:
-        """Request optional data without holding up startup or event dispatch."""
-        if not self._active:
+    def _async_consumption_day_changed(self, now: datetime | None = None) -> None:
+        """Publish stale availability immediately and schedule local midnight."""
+        if not self._consumption_active:
             return
-        task = self._entry.async_create_background_task(
-            self.hass,
-            self.async_refresh() if initial else self.async_request_refresh(),
-            f"{self.name} refresh",
-        )
-        self._refresh_tasks.add(task)
-        task.add_done_callback(self._refresh_tasks.discard)
-
-    @callback
-    def _async_schedule_midnight(self) -> None:
-        """Schedule the next local midnight, including DST offset changes."""
         if self._unsub_midnight is not None:
             self._unsub_midnight()
-        tomorrow = dt_util.now().date() + timedelta(days=1)
         self._unsub_midnight = async_track_point_in_time(
-            self.hass, self._async_midnight, dt_util.start_of_local_day(tomorrow)
+            self.hass,
+            self._async_consumption_day_changed,
+            dt_util.start_of_local_day(dt_util.now().date() + timedelta(days=1)),
         )
-
-    @callback
-    def _async_midnight(self, now: datetime) -> None:
-        """Publish stale availability before waiting for a new day's data."""
-        if not self._active:
-            return
-        self._async_schedule_midnight()
         self.async_update_listeners()
-        self._async_request_background_refresh()
+        self._async_request_consumption()
 
     @callback
     def _async_config_updated(self, event: Event) -> None:
-        """Invalidate consumption and reschedule midnight after timezone changes."""
-        if self._active and "time_zone" in event.data:
-            self._async_schedule_midnight()
-            self.async_update_listeners()
-            self._async_request_background_refresh()
+        """Reschedule the local-day boundary after a timezone change."""
+        if "time_zone" in event.data:
+            self._async_consumption_day_changed()
 
-    @property
-    def fresh(self) -> bool:
-        """Return whether the cached reading belongs to the current local day."""
-        return (
-            self.data is not None
-            and self.data.day == dt_util.now().date()
-            and self.data.time_zone == self.hass.config.time_zone
-        )
+    @callback
+    def _async_request_consumption(self) -> asyncio.Task[None] | None:
+        """Share one optional request without delaying live telemetry."""
+        if not self._consumption_active:
+            return None
+        if self._consumption_task is None or self._consumption_task.done():
+            self._consumption_task = self.config_entry.async_create_background_task(
+                self.hass,
+                self._update_consumption_data(),
+                f"{self.name} consumption",
+                eager_start=False,
+            )
+        return self._consumption_task
 
-    @override
-    async def _async_update_data(self) -> FloConsumptionData:
-        """Track in-flight polling so entity removal can cancel it."""
-        if not self._active:
-            raise UpdateFailed("Consumption entity is no longer listening")
-        task = asyncio.current_task()
-        assert task is not None
-        self._refresh_tasks.add(task)
-        try:
-            return await self._async_fetch_data()
-        finally:
-            self._refresh_tasks.discard(task)
+    async def async_refresh_consumption(self) -> None:
+        """Wait for optional data when the daily sensor is refreshed manually."""
+        if (task := self._async_request_consumption()) is not None:
+            await asyncio.shield(task)
 
-    async def _async_fetch_data(self) -> FloConsumptionData:
-        """Fetch consumption without replacing last-good data on failure."""
+    async def _update_consumption_data(self) -> None:
+        """Keep consumption failures and last-good data separate from telemetry."""
         today = dt_util.now().date()
         time_zone = self.hass.config.time_zone
         start_date = datetime(today.year, today.month, today.day, 0, 0)
         end_date = datetime(today.year, today.month, today.day, 23, 59, 59, 999000)
         try:
             async with asyncio.timeout(20):
-                usage = await self.device.api_client.water.get_consumption_info(
-                    self.device.location_id,
+                usage = await self.api_client.water.get_consumption_info(
+                    self._flo_location_id,
                     start_date,
                     end_date,
-                    device_mac_address=self.device.mac_address,
+                    device_mac_address=self.mac_address,
                 )
-        except (RequestError, TimeoutError, JSONDecodeError) as error:
-            raise UpdateFailed(error) from error
-        try:
             gallons = usage["aggregations"]["sumTotalGallonsConsumed"]
-        except (KeyError, TypeError) as error:
-            raise UpdateFailed("Missing consumption total") from error
-        if (
-            isinstance(gallons, bool)
-            or not isinstance(gallons, (int, float))
-            or not math.isfinite(gallons)
-            or gallons < 0
-        ):
-            raise UpdateFailed("Invalid consumption total")
-        if today != dt_util.now().date() or time_zone != self.hass.config.time_zone:
-            raise UpdateFailed(
-                "Consumption response belongs to a previous local day or time zone"
+        except (
+            RequestError,
+            TimeoutError,
+            JSONDecodeError,
+            KeyError,
+            TypeError,
+        ) as error:
+            self._consumption_success = False
+            LOGGER.debug("Error updating Flo consumption: %s", error)
+        else:
+            self._consumption_success = (
+                not isinstance(gallons, bool)
+                and isinstance(gallons, (int, float))
+                and math.isfinite(gallons)
+                and gallons >= 0
+                and (today, time_zone)
+                == (dt_util.now().date(), self.hass.config.time_zone)
             )
-        return FloConsumptionData(gallons, today, time_zone)
+            if self._consumption_success:
+                self._water_usage = usage
+                self._consumption_day = (today, time_zone)
+                LOGGER.debug("Updated Flo consumption data: %s", self._water_usage)
+            else:
+                LOGGER.debug("Invalid or stale Flo consumption data: %s", usage)
+        self.async_update_listeners()
+        if (today, time_zone) != (dt_util.now().date(), self.hass.config.time_zone):
+            # Retry a request that finished after its local day became stale.
+            self.hass.loop.call_soon(self._async_request_consumption)

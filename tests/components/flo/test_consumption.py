@@ -82,14 +82,14 @@ async def test_invalid_total_preserves_last_good(
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
     device = config_entry.runtime_data.devices[0]
-    consumption = device.consumption
-    previous = consumption.data
+    consumption = device
+    previous = consumption._water_usage
     with patch(
         "aioflo.water.Water.get_consumption_info",
         return_value={"aggregations": {"sumTotalGallonsConsumed": total}},
     ):
         await async_refresh_entity(hass, USAGE)
-    assert consumption.data == previous
+    assert consumption._water_usage == previous
     assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
     assert hass.states.get(MODE).state == "home"
 
@@ -107,8 +107,8 @@ async def test_failure_recovery_manual_refresh_and_unload(
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
     device = config_entry.runtime_data.devices[0]
-    consumption = device.consumption
-    previous = consumption.data
+    consumption = device
+    previous = consumption._water_usage
     with patch(
         "aioflo.water.Water.get_consumption_info", side_effect=RequestError("offline")
     ):
@@ -116,7 +116,7 @@ async def test_failure_recovery_manual_refresh_and_unload(
             freezer.tick(timedelta(seconds=65))
             async_fire_time_changed(hass)
             await hass.async_block_till_done()
-    assert consumption.data == previous
+    assert consumption._water_usage == previous
     assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
     assert hass.states.get(MODE).state == "home"
     assert (
@@ -144,7 +144,6 @@ async def test_failure_recovery_manual_refresh_and_unload(
         water.assert_awaited_once()
     assert hass.states.get(USAGE).state == "0"
     assert await hass.config_entries.async_unload(config_entry.entry_id)
-    assert not consumption._listeners
     assert not device._listeners
     calls = aioclient_mock.call_count
     freezer.tick(timedelta(minutes=5))
@@ -167,8 +166,8 @@ async def test_midnight_response(
     config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
-    consumption = config_entry.runtime_data.devices[0].consumption
-    previous = consumption.data
+    consumption = config_entry.runtime_data.devices[0]
+    previous = consumption._water_usage
 
     async def cross_midnight(*args: object, **kwargs: object) -> dict:
         freezer.tick(timedelta(days=1))
@@ -176,8 +175,8 @@ async def test_midnight_response(
 
     with patch("aioflo.water.Water.get_consumption_info", side_effect=cross_midnight):
         await async_refresh_entity(hass, USAGE)
-    assert consumption.data == previous
-    assert not consumption.fresh
+    assert consumption._water_usage == previous
+    assert not consumption.consumption_available
     assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
     assert hass.states.get(MODE).state == "home"
 
@@ -191,14 +190,14 @@ async def test_timezone_change(
     config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
-    consumption = config_entry.runtime_data.devices[0].consumption
+    consumption = config_entry.runtime_data.devices[0]
     with patch(
         "aioflo.water.Water.get_consumption_info", side_effect=RequestError("offline")
     ) as water:
         await hass.config.async_update(time_zone="America/New_York")
         await hass.async_block_till_done()
         water.assert_awaited_once()
-    assert not consumption.fresh
+    assert not consumption.consumption_available
     assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
     assert hass.states.get(MODE).state == "home"
 
@@ -244,16 +243,19 @@ async def test_timezone_changes_during_request(
     config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
-    consumption = config_entry.runtime_data.devices[0].consumption
-    previous = consumption.data
+    consumption = config_entry.runtime_data.devices[0]
+    previous = consumption._water_usage
 
     async def change_zone(*args: object, **kwargs: object) -> dict[str, object]:
         await hass.config.async_update(time_zone="America/New_York")
+        water.side_effect = RequestError("retry failed")
         return {"aggregations": {"sumTotalGallonsConsumed": 100}}
 
-    with patch("aioflo.water.Water.get_consumption_info", side_effect=change_zone):
+    with patch(
+        "aioflo.water.Water.get_consumption_info", side_effect=change_zone
+    ) as water:
         await async_refresh_entity(hass, USAGE)
-        assert consumption.data == previous
+        assert consumption._water_usage == previous
         assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
     await hass.async_block_till_done()
     assert hass.states.get(MODE).state == "home"

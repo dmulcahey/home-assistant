@@ -45,7 +45,6 @@ async def test_device(
 async def test_device_failures(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
-    aioclient_mock: AiohttpClientMocker,
     freezer: FrozenDateTimeFactory,
 ) -> None:
     """Test Flo by Moen devices buffer API failures."""
@@ -67,7 +66,6 @@ async def test_device_failures(
         await hass.async_block_till_done()
         assert_state(state)
 
-    aioclient_mock.clear_requests()
     with patch(
         "aioflo.presence.Presence.ping",
         side_effect=RequestError,
