@@ -2,6 +2,7 @@
 
 from http import HTTPStatus
 import json
+import time
 from unittest.mock import AsyncMock, patch
 
 from aioflo.api import SSO_TOKEN_URL
@@ -72,7 +73,10 @@ async def test_form_cannot_connect(
         "https://api.meetflo.com/api/v1/users/auth",
         json={
             "token": "token",
-            "tokenPayload": {"user": {"user_id": TEST_USER_ID}, "timestamp": 0},
+            "tokenPayload": {
+                "user": {"user_id": TEST_USER_ID},
+                "timestamp": round(time.time()),
+            },
             "tokenExpiration": 86400,
         },
     )

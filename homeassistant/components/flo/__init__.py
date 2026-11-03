@@ -95,14 +95,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: FloConfigEntry) -> None:
     tasks = [device.async_config_entry_first_refresh() for device in devices]
     await asyncio.gather(*tasks)
 
-    consumption_tasks = []
     for device in devices:
         if device.device_type != "puck_oem":
             device.consumption = FloConsumptionDataUpdateCoordinator(
                 hass, entry, device
             )
-            consumption_tasks.append(device.consumption.async_refresh())
-    await asyncio.gather(*consumption_tasks)
 
     entry.runtime_data = FloRuntimeData(client=client, devices=devices)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

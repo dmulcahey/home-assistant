@@ -1,6 +1,7 @@
 """Flo device object."""
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import math
@@ -12,7 +13,8 @@ from orjson import JSONDecodeError
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_CORE_CONFIG_UPDATE
-from homeassistant.core import Event, HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -275,15 +277,72 @@ class FloConsumptionDataUpdateCoordinator(DataUpdateCoordinator[FloConsumptionDa
             update_interval=timedelta(seconds=60),
         )
         self.device = device
-        entry.async_on_unload(
-            hass.bus.async_listen(EVENT_CORE_CONFIG_UPDATE, self._async_config_updated)
+        self._entry = entry
+        self._active = False
+        self._unsub_midnight: Callable[[], None] | None = None
+        self._refresh_tasks: set[asyncio.Task] = set()
+
+    @callback
+    def async_start(self) -> Callable[[], None]:
+        """Start optional work only while the consumption entity is listening."""
+        self._active = True
+        unsub_config = self.hass.bus.async_listen(
+            EVENT_CORE_CONFIG_UPDATE, self._async_config_updated
+        )
+        self._async_schedule_midnight()
+        self._async_request_background_refresh(initial=True)
+
+        @callback
+        def stop() -> None:
+            self._active = False
+            unsub_config()
+            if self._unsub_midnight is not None:
+                self._unsub_midnight()
+                self._unsub_midnight = None
+            for task in self._refresh_tasks.copy():
+                task.cancel()
+
+        return stop
+
+    @callback
+    def _async_request_background_refresh(self, *, initial: bool = False) -> None:
+        """Request optional data without holding up startup or event dispatch."""
+        if not self._active:
+            return
+        task = self._entry.async_create_background_task(
+            self.hass,
+            self.async_refresh() if initial else self.async_request_refresh(),
+            f"{self.name} refresh",
+        )
+        self._refresh_tasks.add(task)
+        task.add_done_callback(self._refresh_tasks.discard)
+
+    @callback
+    def _async_schedule_midnight(self) -> None:
+        """Schedule the next local midnight, including DST offset changes."""
+        if self._unsub_midnight is not None:
+            self._unsub_midnight()
+        tomorrow = dt_util.now().date() + timedelta(days=1)
+        self._unsub_midnight = async_track_point_in_time(
+            self.hass, self._async_midnight, dt_util.start_of_local_day(tomorrow)
         )
 
-    async def _async_config_updated(self, event: Event) -> None:
-        """Invalidate consumption when the local time zone changes."""
-        if "time_zone" in event.data:
+    @callback
+    def _async_midnight(self, now: datetime) -> None:
+        """Publish stale availability before waiting for a new day's data."""
+        if not self._active:
+            return
+        self._async_schedule_midnight()
+        self.async_update_listeners()
+        self._async_request_background_refresh()
+
+    @callback
+    def _async_config_updated(self, event: Event) -> None:
+        """Invalidate consumption and reschedule midnight after timezone changes."""
+        if self._active and "time_zone" in event.data:
+            self._async_schedule_midnight()
             self.async_update_listeners()
-            await self.async_request_refresh()
+            self._async_request_background_refresh()
 
     @property
     def fresh(self) -> bool:
@@ -296,6 +355,18 @@ class FloConsumptionDataUpdateCoordinator(DataUpdateCoordinator[FloConsumptionDa
 
     @override
     async def _async_update_data(self) -> FloConsumptionData:
+        """Track in-flight polling so entity removal can cancel it."""
+        if not self._active:
+            raise UpdateFailed("Consumption entity is no longer listening")
+        task = asyncio.current_task()
+        assert task is not None
+        self._refresh_tasks.add(task)
+        try:
+            return await self._async_fetch_data()
+        finally:
+            self._refresh_tasks.discard(task)
+
+    async def _async_fetch_data(self) -> FloConsumptionData:
         """Fetch consumption without replacing last-good data on failure."""
         today = dt_util.now().date()
         time_zone = self.hass.config.time_zone
