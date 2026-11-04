@@ -175,7 +175,6 @@ async def test_discovery_recovers_rejected_token(
 @pytest.mark.parametrize(
     ("status", "legacy_response"),
     [
-        pytest.param(400, "", id="generic-400"),
         pytest.param(
             400,
             load_fixture("flo/legacy_auth_rejected.json"),

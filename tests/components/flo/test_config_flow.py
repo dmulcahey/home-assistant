@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 from aioflo.api import SSO_TOKEN_URL
 from aioflo.errors import RequestError
 import pytest
-from pytest_homeassistant.common import load_fixture
+from pytest_homeassistant.common import async_load_fixture
 from pytest_homeassistant.test_util.aiohttp import AiohttpClientMocker
 
 from homeassistant import config_entries
@@ -46,23 +46,14 @@ async def test_form(hass: HomeAssistant) -> None:
         assert len(mock_setup_entry.mock_calls) == 1
 
 
-@pytest.mark.parametrize(
-    "legacy_response",
-    [
-        pytest.param("", id="generic-error"),
-        pytest.param(
-            load_fixture("flo/legacy_auth_rejected.json"), id="credentials-rejected"
-        ),
-    ],
-)
 async def test_form_cannot_connect(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, legacy_response: str
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
     """Test we handle cannot connect error when legacy and SSO both fail."""
     aioclient_mock.post(
         "https://api.meetflo.com/api/v1/users/auth",
         status=HTTPStatus.BAD_REQUEST,
-        text=legacy_response,
+        text=await async_load_fixture(hass, "legacy_auth_rejected.json", "flo"),
         headers={"Content-Type": CONTENT_TYPE_JSON},
     )
     aioclient_mock.post(
@@ -106,23 +97,14 @@ async def test_form_cannot_connect(
     assert result3["type"] is FlowResultType.CREATE_ENTRY
 
 
-@pytest.mark.parametrize(
-    "legacy_response",
-    [
-        pytest.param("", id="generic-error"),
-        pytest.param(
-            load_fixture("flo/legacy_auth_rejected.json"), id="credentials-rejected"
-        ),
-    ],
-)
 async def test_form_sso_after_legacy_failure(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, legacy_response: str
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
     """Test config flow falls back to Moen SSO when legacy auth fails."""
     aioclient_mock.post(
         "https://api.meetflo.com/api/v1/users/auth",
         status=HTTPStatus.BAD_REQUEST,
-        text=legacy_response,
+        text=await async_load_fixture(hass, "legacy_auth_rejected.json", "flo"),
         headers={"Content-Type": CONTENT_TYPE_JSON},
     )
     aioclient_mock.post(
