@@ -11,6 +11,7 @@ from pytest_homeassistant.common import (
     MockConfigEntry,
     async_fire_time_changed,
     async_load_fixture,
+    load_fixture,
 )
 from pytest_homeassistant.test_util.aiohttp import (
     AiohttpClientMocker,
@@ -21,6 +22,7 @@ from yarl import URL
 
 from homeassistant.components.flo.const import CONF_USE_SSO
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import CONTENT_TYPE_JSON
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
@@ -170,7 +172,21 @@ async def test_discovery_recovers_rejected_token(
         (True, ["/prod/v1/oauth2/token"]),
     ],
 )
-@pytest.mark.parametrize("status", [400, 401, 403, 429, 503])
+@pytest.mark.parametrize(
+    ("status", "legacy_response"),
+    [
+        pytest.param(400, "", id="generic-400"),
+        pytest.param(
+            400,
+            load_fixture("flo/legacy_auth_rejected.json"),
+            id="credentials-rejected",
+        ),
+        pytest.param(401, "", id="generic-401"),
+        pytest.param(403, "", id="generic-403"),
+        pytest.param(429, "", id="generic-429"),
+        pytest.param(503, "", id="generic-503"),
+    ],
+)
 async def test_auth_failure_is_retryable(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
@@ -178,6 +194,7 @@ async def test_auth_failure_is_retryable(
     use_sso: bool,
     expected_paths: list[str],
     status: int,
+    legacy_response: str,
 ) -> None:
     """Ambiguous login failures must not demand new credentials or change mode."""
     config_entry.add_to_hass(hass)
@@ -187,7 +204,12 @@ async def test_auth_failure_is_retryable(
         unique_id="existing-account",
     )
     original_data = dict(config_entry.data)
-    aioclient_mock.post("https://api.meetflo.com/api/v1/users/auth", status=status)
+    aioclient_mock.post(
+        "https://api.meetflo.com/api/v1/users/auth",
+        status=status,
+        text=legacy_response,
+        headers={"Content-Type": CONTENT_TYPE_JSON},
+    )
     aioclient_mock.post(SSO_TOKEN_URL, status=status)
     assert not await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
