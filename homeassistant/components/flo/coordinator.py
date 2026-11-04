@@ -271,6 +271,7 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
             EVENT_CORE_CONFIG_UPDATE, self._async_config_updated
         )
         self._async_consumption_day_changed()
+        self._async_request_consumption()
 
         @callback
         def stop() -> None:
@@ -296,7 +297,8 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
             dt_util.start_of_local_day(dt_util.now().date() + timedelta(days=1)),
         )
         self.async_update_listeners()
-        self._async_request_consumption()
+        if not self.config_entry.pref_disable_polling:
+            self._async_request_consumption()
 
     @callback
     def _async_config_updated(self, event: Event) -> None:
@@ -319,8 +321,9 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
         return self._consumption_task
 
     async def async_refresh_consumption(self) -> None:
-        """Wait for optional data when the daily sensor is refreshed manually."""
-        if (task := self._async_request_consumption()) is not None:
+        """Refresh live data and join its optional consumption request."""
+        await self.async_request_refresh()
+        if (task := self._consumption_task) is not None:
             await asyncio.shield(task)
 
     async def _update_consumption_data(self) -> None:

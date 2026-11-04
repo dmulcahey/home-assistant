@@ -75,6 +75,36 @@ async def test_midnight_publishes_unavailable(
 
 
 @pytest.mark.usefixtures("aioclient_mock_fixture")
+async def test_midnight_with_polling_disabled(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """Midnight invalidates usage without polling until a manual refresh."""
+    await hass.config.async_update(time_zone="UTC")
+    freezer.move_to("2026-02-01 23:59:50+00:00")
+    config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(config_entry, pref_disable_polling=True)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert hass.states.get(USAGE).state != STATE_UNAVAILABLE
+
+    calls = aioclient_mock.call_count
+    freezer.tick(timedelta(seconds=10))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert aioclient_mock.call_count == calls
+    assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
+    assert hass.states.get(MODE).state == "home"
+
+    await async_refresh_entity(hass, USAGE)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert aioclient_mock.call_count == calls + 3
+    assert hass.states.get(USAGE).state != STATE_UNAVAILABLE
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
 @pytest.mark.parametrize(
     ("start", "day_hours"),
     [("2026-03-08 05:00:00+00:00", 23), ("2026-11-01 04:00:00+00:00", 25)],
@@ -105,7 +135,7 @@ async def test_dst_midnight(
         freezer.tick(timedelta(seconds=1))
         async_fire_time_changed(hass)
         await hass.async_block_till_done(wait_background_tasks=True)
-        water.assert_awaited_once()
+        water.assert_not_called()
     assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
     assert hass.states.get(MODE).state == "home"
 
@@ -254,6 +284,9 @@ async def test_timezone_reschedules_midnight(
     ) as water:
         await hass.config.async_update(time_zone="America/New_York")
         await hass.async_block_till_done(wait_background_tasks=True)
+        water.assert_not_called()
+        assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
+        await async_refresh_entity(hass, USAGE)
         water.assert_awaited_once()
         previous = hass.states.get(USAGE).state
         freezer.tick(timedelta(seconds=10))
@@ -264,7 +297,7 @@ async def test_timezone_reschedules_midnight(
         freezer.tick(timedelta(hours=5))
         async_fire_time_changed(hass)
         await hass.async_block_till_done(wait_background_tasks=True)
-        assert water.await_count == 2
+        water.assert_awaited_once()
     assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
 
 

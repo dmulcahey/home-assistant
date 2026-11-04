@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import timedelta
+from http import HTTPStatus
 import math
 from unittest.mock import patch
 
@@ -157,6 +158,39 @@ async def test_failure_recovery_manual_refresh_and_unload(
 
 
 @pytest.mark.usefixtures("aioclient_mock_fixture")
+async def test_manual_refresh_reconnects_with_polling_disabled(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """A manual usage refresh also refreshes cached device availability."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    info = await async_load_json_object_fixture(hass, "flo/device_info_response.json")
+    info["isConnected"] = False
+    detector_info = await async_load_json_object_fixture(
+        hass, "flo/device_info_response_detector.json"
+    )
+    config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(config_entry, pref_disable_polling=True)
+    with patch(
+        "aioflo.device.Device.get_info",
+        side_effect={"98765": info, "32839": detector_info}.__getitem__,
+    ):
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done(wait_background_tasks=True)
+    assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
+    assert hass.states.get(MODE).state == STATE_UNAVAILABLE
+
+    calls = aioclient_mock.call_count
+    await async_refresh_entity(hass, USAGE)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert aioclient_mock.call_count == calls + 3
+    assert hass.states.get(USAGE).state == "3.7"
+    assert hass.states.get(MODE).state == "home"
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
 async def test_midnight_response(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
@@ -217,7 +251,9 @@ async def test_missing_total(
 
 
 @pytest.mark.usefixtures("aioclient_mock_fixture")
-@pytest.mark.parametrize("consumption_status", [500])
+@pytest.mark.parametrize(
+    "consumption_status", [HTTPStatus.BAD_REQUEST, HTTPStatus.INTERNAL_SERVER_ERROR]
+)
 async def test_http_failure(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
@@ -232,6 +268,14 @@ async def test_http_failure(
         hass.states.get("binary_sensor.smart_water_shutoff_pending_system_alerts").state
         == "on"
     )
+    assert hass.states.get("switch.smart_water_shutoff_shutoff_valve").state == "on"
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {ATTR_ENTITY_ID: "switch.smart_water_shutoff_shutoff_valve"},
+        blocking=True,
+    )
+    assert hass.states.get("switch.smart_water_shutoff_shutoff_valve").state == "off"
 
 
 @pytest.mark.usefixtures("aioclient_mock_fixture")
@@ -265,6 +309,7 @@ async def test_timezone_changes_during_request(
 async def test_slow_consumption_does_not_delay_telemetry(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
 ) -> None:
     """Live telemetry and alerts update while consumption is still waiting."""
     hass.config.units = US_CUSTOMARY_SYSTEM
@@ -282,10 +327,18 @@ async def test_slow_consumption_does_not_delay_telemetry(
     info = await async_load_json_object_fixture(hass, "flo/device_info_response.json")
     info["telemetry"]["current"]["gpm"] = 2
     info["notifications"]["pending"]["warningCount"] = 0
-    with patch("aioflo.water.Water.get_consumption_info", side_effect=slow_consumption):
-        task = hass.async_create_task(async_refresh_entity(hass, USAGE))
+    with patch(
+        "aioflo.water.Water.get_consumption_info", side_effect=slow_consumption
+    ) as water:
+        task = hass.async_create_background_task(
+            async_refresh_entity(hass, USAGE), "test usage refresh"
+        )
         await started.wait()
         try:
+            # Let the live refresh's debounce cooldown expire.
+            freezer.tick(timedelta(seconds=11))
+            async_fire_time_changed(hass)
+            await hass.async_block_till_done()
             with patch("aioflo.device.Device.get_info", return_value=info):
                 await async_refresh_entity(hass, MODE)
             assert (
@@ -302,4 +355,5 @@ async def test_slow_consumption_does_not_delay_telemetry(
         finally:
             finish.set()
             await task
+        water.assert_awaited_once()
     assert hass.states.get(USAGE).state == "10"
