@@ -203,7 +203,8 @@ async def test_auth_failure_is_retryable(
         unique_id="existing-account",
     )
     original_data = dict(config_entry.data)
-    aioclient_mock.post(
+    aioclient_mock.request(
+        "POST",
         "https://api.meetflo.com/api/v1/users/auth",
         status=status,
         text=legacy_response,

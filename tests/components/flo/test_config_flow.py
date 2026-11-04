@@ -50,7 +50,8 @@ async def test_form_cannot_connect(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
     """Test we handle cannot connect error when legacy and SSO both fail."""
-    aioclient_mock.post(
+    aioclient_mock.request(
+        "POST",
         "https://api.meetflo.com/api/v1/users/auth",
         status=HTTPStatus.BAD_REQUEST,
         text=await async_load_fixture(hass, "legacy_auth_rejected.json", "flo"),
@@ -101,7 +102,8 @@ async def test_form_sso_after_legacy_failure(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
     """Test config flow falls back to Moen SSO when legacy auth fails."""
-    aioclient_mock.post(
+    aioclient_mock.request(
+        "POST",
         "https://api.meetflo.com/api/v1/users/auth",
         status=HTTPStatus.BAD_REQUEST,
         text=await async_load_fixture(hass, "legacy_auth_rejected.json", "flo"),
