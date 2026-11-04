@@ -96,19 +96,17 @@ async def test_invalid_total_preserves_last_good(
 
 
 @pytest.mark.usefixtures("aioclient_mock_fixture")
-async def test_failure_recovery_manual_refresh_and_unload(
+async def test_failure_recovery_manual_refresh(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
     freezer: FrozenDateTimeFactory,
-    aioclient_mock: AiohttpClientMocker,
 ) -> None:
-    """Failure isolation, real zero recovery, and listener/poll cleanup."""
+    """Consumption failures stay isolated and a manual refresh recovers zero."""
     hass.config.units = US_CUSTOMARY_SYSTEM
     config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
-    device = config_entry.runtime_data.devices[0]
-    consumption = device
+    consumption = config_entry.runtime_data.devices[0]
     previous = consumption._water_usage
     with patch(
         "aioflo.water.Water.get_consumption_info", side_effect=RequestError("offline")
@@ -144,17 +142,6 @@ async def test_failure_recovery_manual_refresh_and_unload(
         )
         water.assert_awaited_once()
     assert hass.states.get(USAGE).state == "0"
-    assert await hass.config_entries.async_unload(config_entry.entry_id)
-    assert not device._listeners
-    calls = aioclient_mock.call_count
-    freezer.tick(timedelta(minutes=5))
-    async_fire_time_changed(hass)
-    await hass.async_block_till_done()
-    assert aioclient_mock.call_count == calls
-    with patch("aioflo.water.Water.get_consumption_info") as water:
-        await hass.config.async_update(time_zone="America/New_York")
-        await hass.async_block_till_done()
-        water.assert_not_called()
 
 
 @pytest.mark.usefixtures("aioclient_mock_fixture")

@@ -9,7 +9,7 @@ import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
 from pytest_homeassistant.test_util.aiohttp import AiohttpClientMocker
 
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
@@ -81,7 +81,7 @@ async def test_midnight_with_polling_disabled(
     freezer: FrozenDateTimeFactory,
     aioclient_mock: AiohttpClientMocker,
 ) -> None:
-    """Midnight invalidates usage without polling until a manual refresh."""
+    """Midnight invalidates usage without polling or changing valve state."""
     await hass.config.async_update(time_zone="UTC")
     freezer.move_to("2026-02-01 23:59:50+00:00")
     config_entry.add_to_hass(hass)
@@ -90,6 +90,13 @@ async def test_midnight_with_polling_disabled(
     await hass.async_block_till_done(wait_background_tasks=True)
     assert hass.states.get(USAGE).state != STATE_UNAVAILABLE
 
+    valve = "switch.smart_water_shutoff_shutoff_valve"
+    assert hass.states.get(valve).state == "on"
+    await hass.services.async_call(
+        "switch", "turn_off", {ATTR_ENTITY_ID: valve}, blocking=True
+    )
+    assert hass.states.get(valve).state == "off"
+
     calls = aioclient_mock.call_count
     freezer.tick(timedelta(seconds=10))
     async_fire_time_changed(hass)
@@ -97,6 +104,7 @@ async def test_midnight_with_polling_disabled(
     assert aioclient_mock.call_count == calls
     assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
     assert hass.states.get(MODE).state == "home"
+    assert hass.states.get(valve).state == "off"
 
     await async_refresh_entity(hass, USAGE)
     await hass.async_block_till_done(wait_background_tasks=True)

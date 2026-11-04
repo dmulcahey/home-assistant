@@ -55,7 +55,7 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
         self._water_usage: dict[str, Any] = {}
         self._consumption_day: tuple[date, str] | None = None
         self._consumption_success = False
-        self._consumption_active = False
+        self._consumption_listener: Callable[[], None] | None = None
         self._consumption_task: asyncio.Task[None] | None = None
         self._unsub_midnight: Callable[[], None] | None = None
         super().__init__(
@@ -264,9 +264,11 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
         LOGGER.debug("Flo device data: %s", self._device_information)
 
     @callback
-    def async_start_consumption_updates(self) -> Callable[[], None]:
+    def async_start_consumption_updates(
+        self, update_listener: Callable[[], None]
+    ) -> Callable[[], None]:
         """Enable optional updates while the daily usage sensor is present."""
-        self._consumption_active = True
+        self._consumption_listener = update_listener
         unsub_config = self.hass.bus.async_listen(
             EVENT_CORE_CONFIG_UPDATE, self._async_config_updated
         )
@@ -275,7 +277,7 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
 
         @callback
         def stop() -> None:
-            self._consumption_active = False
+            self._consumption_listener = None
             unsub_config()
             if self._unsub_midnight is not None:
                 self._unsub_midnight()
@@ -287,7 +289,7 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
     @callback
     def _async_consumption_day_changed(self, now: datetime | None = None) -> None:
         """Publish stale availability immediately and schedule local midnight."""
-        if not self._consumption_active:
+        if self._consumption_listener is None:
             return
         if self._unsub_midnight is not None:
             self._unsub_midnight()
@@ -296,7 +298,7 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
             self._async_consumption_day_changed,
             dt_util.start_of_local_day(dt_util.now().date() + timedelta(days=1)),
         )
-        self.async_update_listeners()
+        self._consumption_listener()
         if not self.config_entry.pref_disable_polling:
             self._async_request_consumption()
 
@@ -309,7 +311,7 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
     @callback
     def _async_request_consumption(self) -> asyncio.Task[None] | None:
         """Share one optional request without delaying live telemetry."""
-        if not self._consumption_active:
+        if self._consumption_listener is None:
             return None
         if self._consumption_task is None or self._consumption_task.done():
             self._consumption_task = self.config_entry.async_create_background_task(
@@ -365,7 +367,8 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
                 LOGGER.debug("Updated Flo consumption data: %s", self._water_usage)
             else:
                 LOGGER.debug("Invalid or stale Flo consumption data: %s", usage)
-        self.async_update_listeners()
+        if self._consumption_listener is not None:
+            self._consumption_listener()
         if (today, time_zone) != (dt_util.now().date(), self.hass.config.time_zone):
             # Retry a request that finished after its local day became stale.
             self.hass.loop.call_soon(self._async_request_consumption)
