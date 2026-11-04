@@ -48,9 +48,10 @@ async def test_optional_startup_failure(
 ) -> None:
     """Optional failure must not prevent live entities and controls loading."""
     config_entry.add_to_hass(hass)
-    with patch("aioflo.water.Water.get_consumption_info", side_effect=error):
+    with patch("aioflo.water.Water.get_consumption_info", side_effect=error) as water:
         assert await hass.config_entries.async_setup(config_entry.entry_id)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
+        water.assert_awaited_once()
     assert config_entry.state is ConfigEntryState.LOADED
     assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
     assert hass.states.get(MODE).state == "home"
@@ -178,47 +179,72 @@ async def test_manual_refresh_reconnects_with_polling_disabled(
 
 
 @pytest.mark.usefixtures("aioclient_mock_fixture")
+@pytest.mark.parametrize(
+    ("retry_day_change", "expected_state"),
+    [pytest.param(0, "2", id="fresh"), pytest.param(1, STATE_UNAVAILABLE, id="stale")],
+)
 async def test_midnight_response(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
     freezer: FrozenDateTimeFactory,
+    retry_day_change: int,
+    expected_state: str,
 ) -> None:
-    """A request completing after midnight must not publish yesterday's total."""
+    """Retry yesterday's response once and wait for it during a manual refresh."""
+    hass.config.units = US_CUSTOMARY_SYSTEM
     config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(config_entry, pref_disable_polling=True)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    responses = iter(((1, 100), (retry_day_change, 2)))
+
+    async def cross_midnight(*args: object, **kwargs: object) -> dict[str, object]:
+        day_change, total = next(responses)
+        freezer.tick(timedelta(days=day_change))
+        return {"aggregations": {"sumTotalGallonsConsumed": total}}
+
+    with patch(
+        "aioflo.water.Water.get_consumption_info", side_effect=cross_midnight
+    ) as water:
+        await async_refresh_entity(hass, USAGE)
+        assert hass.states.get(USAGE).state == expected_state
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert water.await_count == 2
+        first, retry = water.await_args_list
+        assert retry.args[1:3] == tuple(
+            value + timedelta(days=1) for value in first.args[1:3]
+        )
+    assert hass.states.get(MODE).state == "home"
+
+
+@pytest.mark.usefixtures("aioclient_mock_fixture")
+@pytest.mark.parametrize("error", [RequestError("offline"), TimeoutError()])
+async def test_midnight_retry_failure(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+    error: Exception,
+) -> None:
+    """A failed rollover retry stays unavailable without scheduling more work."""
+    config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(config_entry, pref_disable_polling=True)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
     consumption = config_entry.runtime_data.devices[0]
     previous = consumption._water_usage
 
-    async def cross_midnight(*args: object, **kwargs: object) -> dict:
+    async def cross_midnight(*args: object, **kwargs: object) -> dict[str, object]:
         freezer.tick(timedelta(days=1))
+        water.side_effect = error
         return {"aggregations": {"sumTotalGallonsConsumed": 100}}
 
-    with patch("aioflo.water.Water.get_consumption_info", side_effect=cross_midnight):
-        await async_refresh_entity(hass, USAGE)
-    assert consumption._water_usage == previous
-    assert not consumption.consumption_available
-    assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
-    assert hass.states.get(MODE).state == "home"
-
-
-@pytest.mark.usefixtures("aioclient_mock_fixture")
-async def test_timezone_change(
-    hass: HomeAssistant,
-    config_entry: MockConfigEntry,
-) -> None:
-    """Time zone changes invalidate old usage and request a new sample."""
-    config_entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(config_entry.entry_id)
-    await hass.async_block_till_done()
-    consumption = config_entry.runtime_data.devices[0]
     with patch(
-        "aioflo.water.Water.get_consumption_info", side_effect=RequestError("offline")
+        "aioflo.water.Water.get_consumption_info", side_effect=cross_midnight
     ) as water:
-        await hass.config.async_update(time_zone="America/New_York")
-        await hass.async_block_till_done()
-        water.assert_awaited_once()
-    assert not consumption.consumption_available
+        await async_refresh_entity(hass, USAGE)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert water.await_count == 2
+    assert consumption._water_usage == previous
     assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
     assert hass.states.get(MODE).state == "home"
 
@@ -266,29 +292,41 @@ async def test_http_failure(
 
 
 @pytest.mark.usefixtures("aioclient_mock_fixture")
-async def test_timezone_changes_during_request(
+async def test_midnight_retry_shares_timeout(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
 ) -> None:
-    """An old-zone response cannot replace last-good data."""
+    """The retry must finish within the original request's timeout budget."""
     config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(config_entry, pref_disable_polling=True)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
-    consumption = config_entry.runtime_data.devices[0]
-    previous = consumption._water_usage
+    loop = asyncio.get_running_loop()
+    started_at = loop.time()
 
-    async def change_zone(*args: object, **kwargs: object) -> dict[str, object]:
-        await hass.config.async_update(time_zone="America/New_York")
-        water.side_effect = RequestError("retry failed")
+    async def expire_retry(*args: object, **kwargs: object) -> dict[str, object]:
+        clock.return_value = started_at + 21
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        return {"aggregations": {"sumTotalGallonsConsumed": 2}}
+
+    async def cross_midnight(*args: object, **kwargs: object) -> dict[str, object]:
+        clock.return_value = started_at + 15
+        freezer.tick(timedelta(days=1))
+        water.side_effect = expire_retry
         return {"aggregations": {"sumTotalGallonsConsumed": 100}}
 
-    with patch(
-        "aioflo.water.Water.get_consumption_info", side_effect=change_zone
-    ) as water:
+    with (
+        patch.object(loop, "time", return_value=started_at) as clock,
+        patch(
+            "aioflo.water.Water.get_consumption_info", side_effect=cross_midnight
+        ) as water,
+    ):
         await async_refresh_entity(hass, USAGE)
-        assert consumption._water_usage == previous
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert water.await_count == 2
         assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
-    await hass.async_block_till_done()
     assert hass.states.get(MODE).state == "home"
 
 

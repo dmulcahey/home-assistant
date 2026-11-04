@@ -154,7 +154,7 @@ async def test_unload_cancels_pending_consumption(
     config_entry: MockConfigEntry,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Unload cancels optional startup and removes midnight/timezone work."""
+    """Unload cancels optional startup and removes midnight work."""
     started = asyncio.Event()
     cancelled = asyncio.Event()
 
@@ -174,7 +174,6 @@ async def test_unload_cancels_pending_consumption(
         assert cancelled.is_set()
         freezer.tick(timedelta(days=2))
         async_fire_time_changed(hass)
-        await hass.config.async_update(time_zone="America/New_York")
         await hass.async_block_till_done(wait_background_tasks=True)
         water.assert_awaited_once()
     freezer.tick(timedelta(days=-2))
@@ -191,7 +190,7 @@ async def test_disabled_consumption_does_not_start_work(
     entity_registry: er.EntityRegistry,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """A disabled consumption entity has no requests or day/timezone listeners."""
+    """A disabled consumption entity has no requests or midnight timer."""
     config_entry.add_to_hass(hass)
     entity_registry.async_get_or_create(
         "sensor",
@@ -206,7 +205,6 @@ async def test_disabled_consumption_does_not_start_work(
         await hass.async_block_till_done(wait_background_tasks=True)
         freezer.tick(timedelta(minutes=2))
         async_fire_time_changed(hass)
-        await hass.config.async_update(time_zone="America/New_York")
         await hass.async_block_till_done(wait_background_tasks=True)
         water.assert_not_called()
     assert hass.states.get(USAGE) is None
@@ -268,45 +266,6 @@ async def test_concurrent_refresh_requires_auth_recovery(
     assert all(headers.get("Authorization") for headers in protected_headers)
     assert hass.states.get(MODE).state == "home"
     assert hass.states.get(USAGE).state != STATE_UNAVAILABLE
-
-
-@pytest.mark.usefixtures("aioclient_mock_fixture")
-async def test_timezone_reschedules_midnight(
-    hass: HomeAssistant,
-    config_entry: MockConfigEntry,
-    freezer: FrozenDateTimeFactory,
-) -> None:
-    """Changing zone removes the old midnight timer and uses the new local day."""
-    await hass.config.async_update(time_zone="UTC")
-    freezer.move_to("2026-02-01 23:59:50+00:00")
-    config_entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(config_entry, pref_disable_polling=True)
-    assert await hass.config_entries.async_setup(config_entry.entry_id)
-    await hass.async_block_till_done(wait_background_tasks=True)
-    with patch(
-        "aioflo.water.Water.get_consumption_info",
-        side_effect=[
-            {"aggregations": {"sumTotalGallonsConsumed": 2}},
-            TimeoutError,
-        ],
-    ) as water:
-        await hass.config.async_update(time_zone="America/New_York")
-        await hass.async_block_till_done(wait_background_tasks=True)
-        water.assert_not_called()
-        assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
-        await async_refresh_entity(hass, USAGE)
-        water.assert_awaited_once()
-        previous = hass.states.get(USAGE).state
-        freezer.tick(timedelta(seconds=10))
-        async_fire_time_changed(hass)
-        await hass.async_block_till_done(wait_background_tasks=True)
-        water.assert_awaited_once()
-        assert hass.states.get(USAGE).state == previous
-        freezer.tick(timedelta(hours=5))
-        async_fire_time_changed(hass)
-        await hass.async_block_till_done(wait_background_tasks=True)
-        water.assert_awaited_once()
-    assert hass.states.get(USAGE).state == STATE_UNAVAILABLE
 
 
 @pytest.mark.usefixtures("aioclient_mock_fixture")

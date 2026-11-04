@@ -12,8 +12,7 @@ from aioflo.errors import RequestError
 from orjson import JSONDecodeError
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_CORE_CONFIG_UPDATE
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -53,7 +52,7 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
         self._manufacturer: str = "Flo by Moen"
         self._device_information: dict[str, Any] = {}
         self._water_usage: dict[str, Any] = {}
-        self._consumption_day: tuple[date, str] | None = None
+        self._consumption_day: date | None = None
         self._consumption_success = False
         self._consumption_listener: Callable[[], None] | None = None
         self._consumption_task: asyncio.Task[None] | None = None
@@ -175,9 +174,8 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
     @property
     def consumption_available(self) -> bool:
         """Return whether consumption succeeded for the current local day."""
-        return self._consumption_success and self._consumption_day == (
-            dt_util.now().date(),
-            self.hass.config.time_zone,
+        return (
+            self._consumption_success and self._consumption_day == dt_util.now().date()
         )
 
     @property
@@ -269,16 +267,12 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
     ) -> Callable[[], None]:
         """Enable optional updates while the daily usage sensor is present."""
         self._consumption_listener = update_listener
-        unsub_config = self.hass.bus.async_listen(
-            EVENT_CORE_CONFIG_UPDATE, self._async_config_updated
-        )
         self._async_consumption_day_changed()
         self._async_request_consumption()
 
         @callback
         def stop() -> None:
             self._consumption_listener = None
-            unsub_config()
             if self._unsub_midnight is not None:
                 self._unsub_midnight()
             if self._consumption_task is not None:
@@ -303,12 +297,6 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
             self._async_request_consumption()
 
     @callback
-    def _async_config_updated(self, event: Event) -> None:
-        """Reschedule the local-day boundary after a timezone change."""
-        if "time_zone" in event.data:
-            self._async_consumption_day_changed()
-
-    @callback
     def _async_request_consumption(self) -> asyncio.Task[None] | None:
         """Share one optional request without delaying live telemetry."""
         if self._consumption_listener is None:
@@ -330,18 +318,22 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
 
     async def _update_consumption_data(self) -> None:
         """Keep consumption failures and last-good data separate from telemetry."""
-        today = dt_util.now().date()
-        time_zone = self.hass.config.time_zone
-        start_date = datetime(today.year, today.month, today.day, 0, 0)
-        end_date = datetime(today.year, today.month, today.day, 23, 59, 59, 999000)
         try:
             async with asyncio.timeout(20):
-                usage = await self.api_client.water.get_consumption_info(
-                    self._flo_location_id,
-                    start_date,
-                    end_date,
-                    device_mac_address=self.mac_address,
-                )
+                for _ in range(2):
+                    today = dt_util.now().date()
+                    start_date = datetime(today.year, today.month, today.day, 0, 0)
+                    end_date = datetime(
+                        today.year, today.month, today.day, 23, 59, 59, 999000
+                    )
+                    usage = await self.api_client.water.get_consumption_info(
+                        self._flo_location_id,
+                        start_date,
+                        end_date,
+                        device_mac_address=self.mac_address,
+                    )
+                    if today == dt_util.now().date():
+                        break
             gallons = usage["aggregations"]["sumTotalGallonsConsumed"]
         except (
             RequestError,
@@ -358,17 +350,13 @@ class FloDeviceDataUpdateCoordinator(DataUpdateCoordinator[None]):
                 and isinstance(gallons, (int, float))
                 and math.isfinite(gallons)
                 and gallons >= 0
-                and (today, time_zone)
-                == (dt_util.now().date(), self.hass.config.time_zone)
+                and today == dt_util.now().date()
             )
             if self._consumption_success:
                 self._water_usage = usage
-                self._consumption_day = (today, time_zone)
+                self._consumption_day = today
                 LOGGER.debug("Updated Flo consumption data: %s", self._water_usage)
             else:
                 LOGGER.debug("Invalid or stale Flo consumption data: %s", usage)
         if self._consumption_listener is not None:
             self._consumption_listener()
-        if (today, time_zone) != (dt_util.now().date(), self.hass.config.time_zone):
-            # Retry a request that finished after its local day became stale.
-            self.hass.loop.call_soon(self._async_request_consumption)
